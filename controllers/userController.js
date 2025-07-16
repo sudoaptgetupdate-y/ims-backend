@@ -12,7 +12,6 @@ exports.getAllUsers = async (req, res) => {
         const searchTerm = req.query.search || '';
         const skip = (page - 1) * limit;
 
-        // ค้นหาจาก name และ email
         const where = searchTerm
             ? {
                 OR: [
@@ -28,15 +27,17 @@ exports.getAllUsers = async (req, res) => {
                 skip,
                 take: limit,
                 orderBy: { createdAt: 'desc' },
-                // คง select เดิมไว้เพื่อไม่ให้แสดงรหัสผ่าน
+                // --- START: แก้ไขส่วนนี้ ---
                 select: {
                     id: true,
+                    username: true, // <-- เพิ่มบรรทัดนี้
                     email: true,
                     name: true,
                     role: true,
                     accountStatus: true,
                     createdAt: true,
                 }
+                // --- END ---
             }),
             prisma.user.count({ where })
         ]);
@@ -57,22 +58,25 @@ exports.getAllUsers = async (req, res) => {
 
 // สร้างผู้ใช้ใหม่โดย Super Admin
 exports.createUser = async (req, res) => {
-    const { email, password, name, role } = req.body;
+    // 1. รับ username เข้ามาด้วย
+    const { email, password, name, role, username } = req.body;
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = await prisma.user.create({
             data: {
+                username, // <-- 2. เพิ่ม username ตอนสร้าง
                 email,
                 password: hashedPassword,
                 name,
-                role, // สามารถกำหนด Role ได้
+                role,
             }
         });
         const { password: _, ...userToReturn } = newUser;
         res.status(201).json(userToReturn);
     } catch (error) {
         if (error.code === 'P2002') {
-            return res.status(400).json({ error: 'This email is already in use.' });
+            const field = error.meta.target[0];
+            return res.status(400).json({ error: `This ${field} is already in use.` });
         }
         res.status(500).json({ error: 'Could not create the user.' });
     }
@@ -81,17 +85,19 @@ exports.createUser = async (req, res) => {
 // อัปเดตข้อมูลผู้ใช้ (Name, Email, Role)
 exports.updateUser = async (req, res) => {
     const { id } = req.params;
-    const { name, email, role } = req.body;
+    // 1. รับ username เข้ามาด้วย
+    const { name, email, role, username } = req.body;
     try {
         const updatedUser = await prisma.user.update({
             where: { id: parseInt(id) },
-            data: { name, email, role },
+            data: { name, email, role, username }, // <-- 2. เพิ่ม username ตอนอัปเดต
         });
         const { password, ...userToReturn } = updatedUser;
         res.status(200).json(userToReturn);
     } catch (error) {
         if (error.code === 'P2002') {
-            return res.status(400).json({ error: 'This email is already in use by another account.' });
+            const field = error.meta.target[0];
+            return res.status(400).json({ error: `This ${field} is already in use.` });
         }
         res.status(500).json({ error: 'Could not update the user.' });
     }
