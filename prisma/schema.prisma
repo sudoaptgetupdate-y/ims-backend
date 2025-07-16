@@ -1,0 +1,128 @@
+// prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// --- START: เพิ่ม Enum ใหม่ 2 ตัวนี้ ---
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  EMPLOYEE
+}
+
+enum AccountStatus {
+  ACTIVE
+  DISABLED
+}
+// --- END: เพิ่ม Enum ใหม่ 2 ตัวนี้ ---
+
+enum InventoryStatus {
+  IN_STOCK
+  SOLD
+  RESERVED
+  DEFECTIVE
+}
+
+// -- Models --
+
+model Brand {
+  id            Int            @id @default(autoincrement())
+  name          String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  productModels ProductModel[]
+}
+
+model Category {
+  id                   Int            @id @default(autoincrement())
+  name                 String         @unique
+  requiresMacAddress   Boolean        @default(true)
+  requiresSerialNumber Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  productModels        ProductModel[]
+}
+
+model User {
+  id                 Int             @id @default(autoincrement())
+  username           String          @unique // <-- เพิ่มบรรทัดนี้
+  email              String
+  password           String
+  name               String?
+  role               Role            @default(EMPLOYEE)
+  accountStatus      AccountStatus   @default(ACTIVE)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  customersCreated   Customer[]
+  productModelsAdded ProductModel[]
+  itemsAdded         InventoryItem[]
+  salesMade          Sale[]
+}
+
+
+model Customer {
+  id           Int      @id @default(autoincrement())
+  customerCode String   @unique
+  name         String
+  phone        String?
+  address      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  createdBy    User     @relation(fields: [createdById], references: [id])
+  createdById  Int
+  sales        Sale[]
+}
+
+model ProductModel {
+  id           Int      @id @default(autoincrement())
+  modelNumber  String
+  description  String?
+  sellingPrice Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  category     Category @relation(fields: [categoryId], references: [id])
+  categoryId   Int
+  createdBy    User     @relation(fields: [createdById], references: [id])
+  createdById  Int
+  brand        Brand    @relation(fields: [brandId], references: [id])
+  brandId      Int
+  inventoryItems InventoryItem[]
+
+  @@unique([brandId, modelNumber])
+}
+
+model InventoryItem {
+  id             Int             @id @default(autoincrement())
+  serialNumber   String?         @unique
+  macAddress     String?         @unique
+  status         InventoryStatus @default(IN_STOCK)
+  dateAdded      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  productModel   ProductModel    @relation(fields: [productModelId], references: [id])
+  productModelId Int
+  addedBy        User            @relation(fields: [addedById], references: [id])
+  addedById      Int
+  sale           Sale?           @relation(fields: [saleId], references: [id])
+  saleId         Int?
+}
+
+model Sale {
+  id         Int             @id @default(autoincrement())
+  subtotal   Float           @default(0) // ราคารวมก่อน VAT
+  vatAmount  Float           @default(0) // ยอดภาษี (7%)
+  total      Float           @default(0) // ราคารวมสุทธิ (subtotal + vatAmount)
+  saleDate   DateTime        @default(now())
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  customer   Customer        @relation(fields: [customerId], references: [id])
+  customerId Int
+  soldBy     User            @relation(fields: [soldById], references: [id])
+  soldById   Int
+  itemsSold  InventoryItem[]
+}
