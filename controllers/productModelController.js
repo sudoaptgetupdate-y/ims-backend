@@ -2,6 +2,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// --- Create a new Product Model ---
 exports.createProductModel = async (req, res) => {
     try {
         const { modelNumber, description, sellingPrice, categoryId, brandId } = req.body;
@@ -17,7 +18,6 @@ exports.createProductModel = async (req, res) => {
                 createdById: userId,
             },
         });
-
         res.status(201).json(newProductModel);
     } catch (error) {
         if (error.code === 'P2002') {
@@ -28,16 +28,28 @@ exports.createProductModel = async (req, res) => {
     }
 };
 
+// --- Get all Product Models (Paginated or All) ---
 exports.getAllProductModels = async (req, res) => {
     try {
+        // This is the include object we will reuse to ensure consistency
+        const includeRelations = {
+            category: true,
+            brand: true,
+            createdBy: {
+                select: { id: true, name: true }
+            }
+        };
+
+        // --- Branch for "all=true" requests (for dropdowns) ---
         if (req.query.all === 'true') {
             const allProductModels = await prisma.productModel.findMany({
-                include: { category: true, brand: true },
-                orderBy: { modelNumber: 'asc' }
+                orderBy: { modelNumber: 'asc' },
+                include: includeRelations // Ensure relations are included here too
             });
             return res.status(200).json(allProductModels);
         }
 
+        // --- Branch for Paginated requests (for tables) ---
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const searchTerm = req.query.search || '';
@@ -47,24 +59,19 @@ exports.getAllProductModels = async (req, res) => {
             ? {
                 OR: [
                     { modelNumber: { contains: searchTerm } },
-                    { description: { contains: searchTerm } }
+                    { description: { contains: searchTerm } },
+                    { brand: { name: { contains: searchTerm } } },
                 ]
             }
             : {};
-
+        
         const [productModels, totalItems] = await prisma.$transaction([
             prisma.productModel.findMany({
                 where,
                 skip,
                 take: limit,
                 orderBy: { createdAt: 'desc' },
-                include: {
-                    category: true,
-                    brand: true,
-                    createdBy: {
-                        select: { id: true, name: true }
-                    }
-                }
+                include: includeRelations // Use the consistent include object
             }),
             prisma.productModel.count({ where })
         ]);
@@ -84,6 +91,7 @@ exports.getAllProductModels = async (req, res) => {
     }
 };
 
+// --- Get a single Product Model by ID ---
 exports.getProductModelById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -105,17 +113,11 @@ exports.getProductModelById = async (req, res) => {
     }
 };
 
+// --- Update a Product Model ---
 exports.updateProductModel = async (req, res) => {
     try {
         const { id } = req.params;
-        let { modelNumber, description, sellingPrice, categoryId, brandId } = req.body;
-
-        const parsedCategoryId = parseInt(categoryId, 10);
-        const parsedBrandId = parseInt(brandId, 10);
-
-        if (isNaN(parsedCategoryId) || isNaN(parsedBrandId)) {
-            return res.status(400).json({ error: "Invalid Category or Brand ID format." });
-        }
+        const { modelNumber, description, sellingPrice, categoryId, brandId } = req.body;
 
         const updatedProductModel = await prisma.productModel.update({
             where: { id: parseInt(id) },
@@ -123,8 +125,8 @@ exports.updateProductModel = async (req, res) => {
                 modelNumber,
                 description,
                 sellingPrice,
-                categoryId: parsedCategoryId,
-                brandId: parsedBrandId,
+                categoryId: parseInt(categoryId, 10),
+                brandId: parseInt(brandId, 10),
             },
         });
         res.status(200).json(updatedProductModel);
@@ -137,6 +139,7 @@ exports.updateProductModel = async (req, res) => {
     }
 };
 
+// --- Delete a Product Model ---
 exports.deleteProductModel = async (req, res) => {
     try {
         const { id } = req.params;
@@ -145,6 +148,10 @@ exports.deleteProductModel = async (req, res) => {
         });
         res.status(204).send();
     } catch (error) {
+         if (error.code === 'P2003') { // Foreign key constraint failed
+            return res.status(400).json({ error: 'Cannot delete this model because it is linked to inventory items.' });
+        }
+        console.error(error);
         res.status(500).json({ error: 'Could not delete the product model' });
     }
 };
