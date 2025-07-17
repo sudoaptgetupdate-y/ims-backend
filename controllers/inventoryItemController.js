@@ -1,4 +1,4 @@
-// D:\Dev\IMS\controllers\inventoryItemController.js
+// controllers/inventoryItemController.js
 
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
@@ -48,8 +48,6 @@ exports.getAllInventoryItems = async (req, res) => {
 
             const allItems = await prisma.inventoryItem.findMany({
                  where,
-                 // --- START: แก้ไขส่วนนี้ ---
-                 // เพิ่มการ include brand และ category เข้ามาใน productModel
                  include: {
                     productModel: {
                         include: {
@@ -58,7 +56,6 @@ exports.getAllInventoryItems = async (req, res) => {
                         }
                     }
                  },
-                 // --- END ---
                  orderBy: {
                     updatedAt: 'desc'
                  }
@@ -91,7 +88,7 @@ exports.getAllInventoryItems = async (req, res) => {
                 take: limit,
                 orderBy: { updatedAt: 'desc' },
                 include: {
-                    productModel: { include: { category: true, brand: true } }, // เพิ่ม brand ตรงนี้ด้วย
+                    productModel: { include: { category: true, brand: true } },
                     addedBy: { select: { name: true } }
                 }
             }),
@@ -155,14 +152,37 @@ exports.updateInventoryItem = async (req, res) => {
     }
 };
 
+// --- START: ส่วนที่แก้ไข ---
 exports.deleteInventoryItem = async (req, res) => {
+    const { id } = req.params;
     try {
-        const { id } = req.params;
+        // 1. ค้นหาสินค้าและสถานะก่อนทำการลบ
+        const itemToDelete = await prisma.inventoryItem.findUnique({
+            where: { id: parseInt(id) },
+        });
+
+        if (!itemToDelete) {
+            return res.status(404).json({ error: 'Item not found.' });
+        }
+
+        // 2. ตรวจสอบสถานะ: ถ้าถูกขายหรือยืมไปแล้ว ไม่อนุญาตให้ลบ
+        if (itemToDelete.status === 'SOLD' || itemToDelete.status === 'BORROWED') {
+            return res.status(400).json({ error: `Cannot delete item because its status is '${itemToDelete.status}'.` });
+        }
+
+        // 3. ถ้าสถานะปลอดภัย จึงทำการลบ
         await prisma.inventoryItem.delete({
             where: { id: parseInt(id) },
         });
+
         res.status(204).send();
     } catch (error) {
-        res.status(500).json({ error: 'Could not delete the item' });
+        // ดักจับ error อื่นๆ จาก Prisma เผื่อไว้
+        if (error.code === 'P2003') { // Foreign key constraint
+             return res.status(400).json({ error: 'This item cannot be deleted as it is referenced elsewhere.' });
+        }
+        console.error("Delete Item Error:", error);
+        res.status(500).json({ error: 'Could not delete the item.' });
     }
 };
+// --- END ---
