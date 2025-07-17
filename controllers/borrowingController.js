@@ -173,3 +173,36 @@ exports.getAllBorrowings = async (req, res) => {
         res.status(500).json({ error: 'Could not fetch borrowings.' });
     }
 };
+
+exports.getBorrowingById = async (req, res) => {
+    try {
+        const { borrowingId } = req.params;
+        const borrowing = await prisma.borrowing.findUnique({
+            where: { id: parseInt(borrowingId) },
+            include: {
+                borrower: true,
+                approvedBy: { select: { id: true, name: true, email: true } },
+                items: {
+                    include: {
+                        productModel: {
+                            include: {
+                                brand: true,
+                                category: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        if (!borrowing) {
+            return res.status(404).json({ error: 'Borrowing record not found' });
+        }
+
+        res.status(200).json(borrowing);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Could not fetch the borrowing record.' });
+    }
+};
