@@ -11,7 +11,10 @@ const {
     updateCustomer,
     deleteCustomer,
     getCustomerHistory,
-    getCustomerSummary
+    getCustomerSummary,
+    getActiveBorrowings,
+    getReturnedHistory,
+    getPurchaseHistory
 } = require('../controllers/customerController.js');
 
 const adminAccess = ['ADMIN', 'SUPER_ADMIN'];
@@ -21,6 +24,9 @@ router.get('/', getAllCustomers);
 router.get('/:id', getCustomerById);
 router.get('/:id/history', authCheck, getCustomerHistory);
 router.get('/:id/summary', authCheck, getCustomerSummary);
+router.get('/:id/active-borrowings', authCheck, getActiveBorrowings);
+router.get('/:id/returned-history', authCheck, getReturnedHistory);
+router.get('/:id/purchase-history', authCheck, getPurchaseHistory);
 
 router.post('/', authCheck, roleCheck(adminAccess), createCustomer);
 router.put('/:id', authCheck, roleCheck(adminAccess), updateCustomer);
