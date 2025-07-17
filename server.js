@@ -12,7 +12,8 @@ const inventoryItemRoute = require('./routes/inventoryItemRoute');
 const brandRoute = require('./routes/brandRoute');
 const saleRoute = require('./routes/saleRoute');
 const dashboardRoute = require('./routes/dashboardRoute');
-const userRoute = require('./routes/userRoute'); //
+const userRoute = require('./routes/userRoute');
+const borrowingRoute = require('./routes/borrowingRoute');
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use('/api/brands', brandRoute);
 app.use('/api/sales', saleRoute);
 app.use('/api/dashboard', dashboardRoute);
 app.use('/api/users', userRoute);
+app.use('/api/borrowings', borrowingRoute);
 
 const port = process.env.PORT || 5001;
 app.listen(port, () => console.log(`Server is running on port ${port}`));
