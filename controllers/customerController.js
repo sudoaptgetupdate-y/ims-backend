@@ -170,3 +170,61 @@ exports.getCustomerSales = async (req, res) => {
         res.status(500).json({ error: 'Could not fetch customer sales history.' });
     }
 };
+
+/**
+ * ดึงประวัติทั้งหมด (การซื้อและการยืม) ของลูกค้าคนเดียว
+ */
+exports.getCustomerHistory = async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // 1. ดึงข้อมูลการซื้อทั้งหมด
+        const sales = await prisma.sale.findMany({
+            where: { customerId: parseInt(id) },
+            include: {
+                itemsSold: {
+                    include: { productModel: true }
+                }
+            },
+            orderBy: { saleDate: 'desc' }
+        });
+
+        // 2. ดึงข้อมูลการยืมทั้งหมด
+        const borrowings = await prisma.borrowing.findMany({
+            where: { borrowerId: parseInt(id) },
+            include: {
+                items: {
+                    include: { productModel: true }
+                }
+            },
+            orderBy: { borrowDate: 'desc' }
+        });
+
+        // 3. จัดรูปแบบข้อมูลใหม่เพื่อรวมกัน
+        const salesHistory = sales.map(sale => ({
+            type: 'SALE',
+            id: `sale-${sale.id}`,
+            date: sale.saleDate,
+            itemCount: sale.itemsSold.length,
+            details: sale
+        }));
+
+        const borrowingHistory = borrowings.map(b => ({
+            type: 'BORROWING',
+            id: `borrow-${b.id}`,
+            date: b.borrowDate,
+            itemCount: b.items.length,
+            details: b
+        }));
+
+        // 4. รวมข้อมูลทั้งสองประเภทและเรียงตามวันที่จากล่าสุดไปเก่าสุด
+        const combinedHistory = [...salesHistory, ...borrowingHistory]
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        res.status(200).json(combinedHistory);
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Could not fetch customer history.' });
+    }
+};

@@ -15,6 +15,7 @@ const {
     updateCustomer,
     deleteCustomer,
     getCustomerSales,
+    getCustomerHistory
 } = require('../controllers/customerController.js');
 
 const adminAccess = ['ADMIN', 'SUPER_ADMIN'];
@@ -25,9 +26,7 @@ const adminAccess = ['ADMIN', 'SUPER_ADMIN'];
 // GET routes - อนุญาตให้ทุก Role ดูได้
 router.get('/', getAllCustomers);
 router.get('/:id', getCustomerById);
-router.get('/:id/sales', getCustomerSales);
-
-// POST, PUT, DELETE routes - จำกัดสิทธิ์
+router.get('/:id/history', authCheck, getCustomerHistory);
 router.post('/', authCheck, roleCheck(adminAccess), createCustomer);
 router.put('/:id', authCheck, roleCheck(adminAccess), updateCustomer);
 router.delete('/:id', authCheck, roleCheck(adminAccess), deleteCustomer);
