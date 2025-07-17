@@ -192,13 +192,12 @@ exports.getCustomerSummary = async (req, res) => {
     const customerId = parseInt(id);
 
     try {
-        // === ส่วนที่แก้ไข 1: เพิ่ม orderBy ===
         const purchases = await prisma.sale.findMany({
             where: { customerId },
             include: {
                 itemsSold: { include: { productModel: true } }
             },
-            orderBy: { saleDate: 'desc' } // เรียงลำดับการซื้อจากล่าสุดไปเก่าสุด
+            orderBy: { saleDate: 'desc' }
         });
 
         const borrowings = await prisma.borrowing.findMany({
@@ -206,9 +205,8 @@ exports.getCustomerSummary = async (req, res) => {
             include: {
                 items: { include: { productModel: true } }
             },
-            orderBy: { borrowDate: 'desc' } // เรียงลำดับการยืมจากล่าสุดไปเก่าสุด
+            orderBy: { borrowDate: 'desc' }
         });
-        // ===================================
 
         const allBorrowedItems = borrowings.flatMap(b =>
             b.items.map(item => ({
@@ -247,7 +245,6 @@ exports.getActiveBorrowings = async (req, res) => {
     const customerId = parseInt(id);
 
     try {
-        // ค้นหาใบยืมทั้งหมดของลูกค้าคนนี้ที่มีสถานะเป็น BORROWED
         const activeBorrowings = await prisma.borrowing.findMany({
             where: {
                 borrowerId: customerId,
@@ -256,7 +253,7 @@ exports.getActiveBorrowings = async (req, res) => {
             include: {
                 items: {
                     where: {
-                        status: 'BORROWED' // ดึงมาเฉพาะไอเทมที่ยังไม่คืน
+                        status: 'BORROWED'
                     },
                     include: {
                         productModel: true,
@@ -275,40 +272,59 @@ exports.getActiveBorrowings = async (req, res) => {
     }
 };
 
+// --- START: ส่วนที่แก้ไข ---
 exports.getReturnedHistory = async (req, res) => {
     const { id } = req.params;
     const customerId = parseInt(id);
 
     try {
-        const borrowings = await prisma.borrowing.findMany({
-            where: { 
-                borrowerId: customerId,
-                status: { not: 'BORROWED' } // ดึงเฉพาะใบยืมที่คืนแล้ว
-            },
-            include: {
-                items: {
-                    include: { productModel: true }
+        // ค้นหารายการสินค้าทั้งหมดที่เคยถูกยืมโดยลูกค้ารายนี้ และตอนนี้ไม่ได้อยู่ในสถานะ 'BORROWED'
+        const returnedItems = await prisma.inventoryItem.findMany({
+            where: {
+                // ต้องมี borrowingId เพื่อยืนยันว่าเคยถูกยืม
+                borrowingId: { not: null },
+                // การยืมนั้นต้องเป็นของลูกค้ารายนี้
+                borrowing: {
+                    borrowerId: customerId
+                },
+                // และสถานะปัจจุบันของสินค้าต้อง *ไม่ใช่* 'BORROWED'
+                NOT: {
+                    status: 'BORROWED'
                 }
             },
-            orderBy: { returnDate: 'desc' }
+            include: {
+                // ดึงข้อมูล ProductModel มาเพื่อแสดงผล
+                productModel: true,
+                // ดึงข้อมูลการยืม (Borrowing) มาเพื่อเอาวันที่คืน (returnDate)
+                borrowing: true
+            },
+            orderBy: {
+                // จัดเรียงตามวันที่อัปเดตล่าสุด (ซึ่งก็คือตอนที่สินค้าถูกคืน)
+                updatedAt: 'desc'
+            }
         });
 
-        // คลี่ข้อมูลออกมาเป็นรายชิ้น
-        const returnedItems = borrowings.flatMap(b => 
-            b.items.map(item => ({
-                ...item,
-                returnDate: b.returnDate,
-                transactionId: b.id,
-            }))
-        );
+        // จัดรูปแบบข้อมูลให้ตรงกับที่ Frontend คาดหวัง
+        const formattedItems = returnedItems.map(item => {
+            const { borrowing, ...restOfItem } = item;
+            return {
+                ...restOfItem,
+                productModel: item.productModel,
+                // ใช้ returnDate จาก transaction การยืมหลัก
+                returnDate: borrowing.returnDate,
+                // transactionId คือ ID ของใบยืม
+                transactionId: borrowing.id
+            };
+        });
 
-        res.status(200).json(returnedItems);
+        res.status(200).json(formattedItems);
 
     } catch (error) {
         console.error("Error fetching returned history:", error);
         res.status(500).json({ error: 'Could not fetch returned items history.' });
     }
 };
+// --- END: ส่วนที่แก้ไข ---
 
 /**
  * ดึงประวัติอุปกรณ์ที่เคยซื้อทั้งหมด

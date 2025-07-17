@@ -1,4 +1,5 @@
-// prisma/schema.prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
   provider = "prisma-client-js"
@@ -9,62 +10,58 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- START: เพิ่ม Enum ใหม่ 2 ตัวนี้ ---
+// --- Enums ---
+
 enum Role {
-  SUPER_ADMIN
-  ADMIN
   EMPLOYEE
+  ADMIN
+  SUPER_ADMIN
 }
 
 enum AccountStatus {
   ACTIVE
   DISABLED
 }
-// --- END: เพิ่ม Enum ใหม่ 2 ตัวนี้ ---
 
-enum InventoryStatus {
+enum ItemStatus {
   IN_STOCK
   SOLD
   RESERVED
   DEFECTIVE
+  BORROWED
 }
 
-// -- Models --
-
-model Brand {
-  id            Int            @id @default(autoincrement())
-  name          String         @unique
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  productModels ProductModel[]
+enum BorrowStatus {
+  BORROWED
+  RETURNED
+  OVERDUE
 }
 
-model Category {
-  id                   Int            @id @default(autoincrement())
-  name                 String         @unique
-  requiresMacAddress   Boolean        @default(true)
-  requiresSerialNumber Boolean        @default(true)
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  productModels        ProductModel[]
-}
+
+// --- Models ---
 
 model User {
-  id                 Int             @id @default(autoincrement())
-  username           String          @unique // <-- เพิ่มบรรทัดนี้
-  email              String
+  id                 Int      @id @default(autoincrement())
+  username           String   @unique
+  email              String   @unique
   password           String
-  name               String?
-  role               Role            @default(EMPLOYEE)
-  accountStatus      AccountStatus   @default(ACTIVE)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  customersCreated   Customer[]
-  productModelsAdded ProductModel[]
-  itemsAdded         InventoryItem[]
-  salesMade          Sale[]
-}
+  name               String
+  role               Role     @default(EMPLOYEE)
+  accountStatus      AccountStatus @default(ACTIVE)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
+  // Relations
+  createdCategories  Category[]
+  createdBrands      Brand[]
+  createdProductModels ProductModel[]
+  addedInventoryItems InventoryItem[] @relation("AddedBy")
+  createdCustomers   Customer[]
+  salesMade          Sale[]
+
+  // **แก้ไข:** ความสัมพันธ์สำหรับผู้อนุมัติการยืม
+  approvedBorrowings  Borrowing[] @relation("ApprovedBorrowings")
+}
 
 model Customer {
   id           Int      @id @default(autoincrement())
@@ -74,55 +71,113 @@ model Customer {
   address      String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  createdBy    User     @relation(fields: [createdById], references: [id])
   createdById  Int
+  createdBy    User     @relation(fields: [createdById], references: [id])
   sales        Sale[]
+
+  // **เพิ่ม:** ความสัมพันธ์สำหรับผู้ยืม
+  borrowings   Borrowing[]
+}
+
+model Category {
+  id                   Int      @id @default(autoincrement())
+  name                 String   @unique
+  requiresMacAddress   Boolean  @default(true)
+  requiresSerialNumber Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  createdById          Int?
+  createdBy            User?    @relation(fields: [createdById], references: [id])
+  productModels        ProductModel[]
+}
+
+model Brand {
+  id              Int      @id @default(autoincrement())
+  name            String   @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdById     Int?
+  createdBy       User?    @relation(fields: [createdById], references: [id])
+  productModels   ProductModel[]
 }
 
 model ProductModel {
-  id           Int      @id @default(autoincrement())
-  modelNumber  String
-  description  String?
-  sellingPrice Float    @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  category     Category @relation(fields: [categoryId], references: [id])
-  categoryId   Int
-  createdBy    User     @relation(fields: [createdById], references: [id])
-  createdById  Int
-  brand        Brand    @relation(fields: [brandId], references: [id])
-  brandId      Int
+  id            Int      @id @default(autoincrement())
+  modelNumber   String
+  description   String?
+  sellingPrice  Float
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  categoryId    Int
+  category      Category @relation(fields: [categoryId], references: [id])
+  brandId       Int
+  brand         Brand    @relation(fields: [brandId], references: [id])
+  createdById   Int
+  createdBy     User     @relation(fields: [createdById], references: [id])
+
   inventoryItems InventoryItem[]
 
-  @@unique([brandId, modelNumber])
+  @@unique([modelNumber, brandId])
 }
 
 model InventoryItem {
-  id             Int             @id @default(autoincrement())
-  serialNumber   String?         @unique
-  macAddress     String?         @unique
-  status         InventoryStatus @default(IN_STOCK)
-  dateAdded      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  productModel   ProductModel    @relation(fields: [productModelId], references: [id])
+  id            Int      @id @default(autoincrement())
+  serialNumber  String?  @unique
+  macAddress    String?  @unique
+  status        ItemStatus @default(IN_STOCK)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   productModelId Int
-  addedBy        User            @relation(fields: [addedById], references: [id])
-  addedById      Int
-  sale           Sale?           @relation(fields: [saleId], references: [id])
-  saleId         Int?
+  productModel   ProductModel @relation(fields: [productModelId], references: [id])
+
+  addedById     Int
+  addedBy       User     @relation("AddedBy", fields: [addedById], references: [id])
+
+  // Relations for Sales
+  saleId        Int?
+  sale          Sale?    @relation(fields: [saleId], references: [id])
+
+  // Relations for Borrowing
+  borrowingId   Int?
+  borrowing     Borrowing? @relation(fields: [borrowingId], references: [id])
+
+  @@index([status])
 }
 
 model Sale {
-  id         Int             @id @default(autoincrement())
-  subtotal   Float           @default(0) // ราคารวมก่อน VAT
-  vatAmount  Float           @default(0) // ยอดภาษี (7%)
-  total      Float           @default(0) // ราคารวมสุทธิ (subtotal + vatAmount)
-  saleDate   DateTime        @default(now())
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-  customer   Customer        @relation(fields: [customerId], references: [id])
-  customerId Int
-  soldBy     User            @relation(fields: [soldById], references: [id])
-  soldById   Int
-  itemsSold  InventoryItem[]
+  id          Int      @id @default(autoincrement())
+  saleDate    DateTime @default(now())
+  subtotal    Float
+  vatAmount   Float
+  total       Float
+
+  customerId  Int
+  customer    Customer @relation(fields: [customerId], references: [id])
+
+  soldById    Int
+  soldBy      User     @relation(fields: [soldById], references: [id])
+
+  itemsSold   InventoryItem[]
+}
+
+// **Model ใหม่สำหรับระบบยืม-คืน (แก้ไขแล้ว)**
+model Borrowing {
+  id            Int       @id @default(autoincrement())
+  
+  borrowerId    Int
+  borrower      Customer  @relation(fields: [borrowerId], references: [id])
+  
+  approvedById  Int
+  approvedBy    User      @relation("ApprovedBorrowings", fields: [approvedById], references: [id])
+  
+  items         InventoryItem[]
+
+  borrowDate    DateTime  @default(now())
+  dueDate       DateTime?
+  returnDate    DateTime?
+  notes         String?
+
+  status        BorrowStatus @default(BORROWED)
 }
