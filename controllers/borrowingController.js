@@ -7,18 +7,15 @@ const prisma = new PrismaClient();
  * สร้างรายการยืมใหม่
  */
 exports.createBorrowing = async (req, res) => {
-    // 1. ดึงข้อมูลจาก request body
     const { customerId, inventoryItemIds, dueDate, notes } = req.body;
-    const approvedById = req.user.id; // ID ของ Admin ที่ล็อกอินอยู่
+    const approvedById = req.user.id;
 
     if (!customerId || !inventoryItemIds || inventoryItemIds.length === 0) {
         return res.status(400).json({ error: 'Customer ID and at least one Item ID are required.' });
     }
 
     try {
-        // 2. เริ่ม Transaction เพื่อความปลอดภัยของข้อมูล
         const newBorrowing = await prisma.$transaction(async (tx) => {
-            // 2.1 ตรวจสอบว่าสินค้าทุกชิ้นพร้อมให้ยืมหรือไม่
             const itemsToBorrow = await tx.inventoryItem.findMany({
                 where: {
                     id: { in: inventoryItemIds },
@@ -30,27 +27,24 @@ exports.createBorrowing = async (req, res) => {
                 throw new Error('One or more items are not available or not found.');
             }
 
-            // 2.2 สร้างรายการยืม (Borrowing)
             const createdBorrowing = await tx.borrowing.create({
                 data: {
                     borrowerId: customerId,
                     approvedById,
-                    dueDate: dueDate ? new Date(dueDate) : null, // รองรับการยืมไม่มีกำหนดคืน
+                    dueDate: dueDate ? new Date(dueDate) : null,
                     notes,
                     status: 'BORROWED',
                 },
             });
 
-            // 2.3 อัปเดตสถานะของสินค้าทุกชิ้นเป็น BORROWED
             await tx.inventoryItem.updateMany({
                 where: { id: { in: inventoryItemIds } },
                 data: {
                     status: 'BORROWED',
-                    borrowingId: createdBorrowing.id, // ผูกกับ ID ของการยืม
+                    borrowingId: createdBorrowing.id,
                 },
             });
 
-            // 2.4 ดึงข้อมูลทั้งหมดกลับไปแสดงผล
             return tx.borrowing.findUnique({
                 where: { id: createdBorrowing.id },
                 include: {
@@ -61,7 +55,6 @@ exports.createBorrowing = async (req, res) => {
             });
         });
 
-        // 3. ถ้า Transaction สำเร็จ ให้ส่งข้อมูลกลับไป
         res.status(201).json(newBorrowing);
 
     } catch (error) {
@@ -72,7 +65,7 @@ exports.createBorrowing = async (req, res) => {
 
 
 /**
- * รับคืนอุปกรณ์
+ * รับคืนอุปกรณ์ (แก้ไขแล้ว)
  */
 exports.returnItems = async (req, res) => {
     const { borrowingId } = req.params;
@@ -84,15 +77,16 @@ exports.returnItems = async (req, res) => {
 
     try {
         await prisma.$transaction(async (tx) => {
+            // === ส่วนที่แก้ไข ===
             // 1. อัปเดตสถานะของสินค้าที่คืนให้กลับเป็น IN_STOCK
+            // **แต่ไม่ลบ borrowingId ออก** เพื่อคงประวัติไว้
             await tx.inventoryItem.updateMany({
                 where: {
                     id: { in: itemIdsToReturn },
-                    borrowingId: parseInt(borrowingId) // ตรวจสอบว่าเป็นของรายการยืมนี้จริง
+                    borrowingId: parseInt(borrowingId)
                 },
                 data: {
-                    status: 'IN_STOCK',
-                    borrowingId: null, // ยกเลิกการผูกกับการยืม
+                    status: 'IN_STOCK', 
                 },
             });
 
@@ -134,16 +128,14 @@ exports.getAllBorrowings = async (req, res) => {
         const searchTerm = req.query.search || '';
         const skip = (page - 1) * limit;
 
-        const where = searchTerm
-            ? {
-                OR: [
-                    { borrower: { name: { contains: searchTerm } } },
-                    { approvedBy: { name: { contains: searchTerm } } },
-                    { items: { some: { serialNumber: { contains: searchTerm } } } }
-                ]
-            }
-            : {};
-
+        const where = searchTerm ? {
+            OR: [
+                { borrower: { name: { contains: searchTerm } } },
+                { approvedBy: { name: { contains: searchTerm } } },
+                { items: { some: { serialNumber: { contains: searchTerm } } } }
+            ]
+        } : {};
+        
         const [borrowings, totalItems] = await prisma.$transaction([
             prisma.borrowing.findMany({
                 where,
@@ -153,14 +145,25 @@ exports.getAllBorrowings = async (req, res) => {
                 include: {
                     borrower: { select: { id: true, name: true } },
                     approvedBy: { select: { id: true, name: true } },
-                    items: true
+                    items: { select: { status: true } }
                 }
             }),
             prisma.borrowing.count({ where })
         ]);
 
+        const borrowingsWithItemStatus = borrowings.map(b => {
+            const totalItemCount = b.items.length;
+            const returnedItemCount = b.items.filter(item => item.status !== 'BORROWED').length;
+            const { items, ...rest } = b; 
+            return {
+                ...rest,
+                totalItemCount,
+                returnedItemCount
+            };
+        });
+
         res.status(200).json({
-            data: borrowings,
+            data: borrowingsWithItemStatus,
             pagination: {
                 totalItems,
                 totalPages: Math.ceil(totalItems / limit),
@@ -174,6 +177,9 @@ exports.getAllBorrowings = async (req, res) => {
     }
 };
 
+/**
+ * ดึงข้อมูลการยืมตาม ID
+ */
 exports.getBorrowingById = async (req, res) => {
     try {
         const { borrowingId } = req.params;

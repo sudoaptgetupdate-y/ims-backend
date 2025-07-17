@@ -34,18 +34,14 @@ exports.createCustomer = async (req, res) => {
  */
 exports.getAllCustomers = async (req, res) => {
     try {
-        // --- START: เพิ่มเงื่อนไขนี้ ---
-        // ถ้ามีการส่ง ?all=true ให้ส่งข้อมูลทั้งหมดสำหรับ dropdown
         if (req.query.all === 'true') {
             const allCustomers = await prisma.customer.findMany({
                 orderBy: { name: 'asc' },
                 include: { createdBy: { select: { name: true } } }
             });
-            return res.status(200).json(allCustomers); // ส่งกลับเป็น Array ตรงๆ
+            return res.status(200).json(allCustomers);
         }
-        // --- END ---
 
-        // Logic การแบ่งหน้าเดิม
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const searchTerm = req.query.search || '';
@@ -139,68 +135,28 @@ exports.deleteCustomer = async (req, res) => {
 };
 
 /**
- * ฟังก์ชันสำหรับดึงข้อมูลการขายทั้งหมดของลูกค้าคนเดียว
- */
-exports.getCustomerSales = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const sales = await prisma.sale.findMany({
-            where: {
-                customerId: parseInt(id),
-            },
-            include: {
-                itemsSold: {
-                    include: {
-                        productModel: true,
-                    },
-                },
-            },
-            orderBy: {
-                saleDate: 'desc',
-            },
-        });
-
-        if (!sales) {
-            return res.status(404).json({ error: 'No sales found for this customer.' });
-        }
-
-        res.status(200).json(sales);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: 'Could not fetch customer sales history.' });
-    }
-};
-
-/**
  * ดึงประวัติทั้งหมด (การซื้อและการยืม) ของลูกค้าคนเดียว
  */
 exports.getCustomerHistory = async (req, res) => {
     const { id } = req.params;
 
     try {
-        // 1. ดึงข้อมูลการซื้อทั้งหมด
         const sales = await prisma.sale.findMany({
             where: { customerId: parseInt(id) },
             include: {
-                itemsSold: {
-                    include: { productModel: true }
-                }
+                itemsSold: { include: { productModel: true } }
             },
             orderBy: { saleDate: 'desc' }
         });
 
-        // 2. ดึงข้อมูลการยืมทั้งหมด
         const borrowings = await prisma.borrowing.findMany({
             where: { borrowerId: parseInt(id) },
             include: {
-                items: {
-                    include: { productModel: true }
-                }
+                items: { include: { productModel: true } }
             },
             orderBy: { borrowDate: 'desc' }
         });
 
-        // 3. จัดรูปแบบข้อมูลใหม่เพื่อรวมกัน
         const salesHistory = sales.map(sale => ({
             type: 'SALE',
             id: `sale-${sale.id}`,
@@ -217,7 +173,6 @@ exports.getCustomerHistory = async (req, res) => {
             details: b
         }));
 
-        // 4. รวมข้อมูลทั้งสองประเภทและเรียงตามวันที่จากล่าสุดไปเก่าสุด
         const combinedHistory = [...salesHistory, ...borrowingHistory]
             .sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -226,5 +181,59 @@ exports.getCustomerHistory = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Could not fetch customer history.' });
+    }
+};
+
+/**
+ * ดึงข้อมูลสรุป (Summary) ของลูกค้าคนเดียว (ฉบับแก้ไขล่าสุด)
+ */
+exports.getCustomerSummary = async (req, res) => {
+    const { id } = req.params;
+    const customerId = parseInt(id);
+
+    try {
+        const purchases = await prisma.sale.findMany({
+            where: { customerId },
+            include: {
+                itemsSold: { include: { productModel: true } }
+            }
+        });
+
+        const borrowings = await prisma.borrowing.findMany({
+            where: { borrowerId: customerId },
+            include: {
+                items: { include: { productModel: true } }
+            }
+        });
+
+        const allItemsFromBorrowingTransactions = borrowings.flatMap(b =>
+            b.items.map(item => ({
+                ...item,
+                borrowDate: b.borrowDate,
+                dueDate: b.dueDate,
+                returnDate: b.status !== 'BORROWED' ? b.returnDate : null,
+            }))
+        );
+
+        const currentlyBorrowedItems = allItemsFromBorrowingTransactions.filter(item => item.status === 'BORROWED');
+        const returnedItemsHistory = allItemsFromBorrowingTransactions.filter(item => item.status !== 'BORROWED');
+
+        const purchaseHistory = purchases.flatMap(sale =>
+            sale.itemsSold.map(item => ({
+                ...item,
+                transactionDate: sale.saleDate,
+                transactionId: sale.id
+            }))
+        );
+
+        res.status(200).json({
+            purchaseHistory,
+            currentlyBorrowedItems,
+            returnedItemsHistory
+        });
+
+    } catch (error) {
+        console.error("Error fetching customer summary:", error);
+        res.status(500).json({ error: 'Could not fetch customer summary.' });
     }
 };
