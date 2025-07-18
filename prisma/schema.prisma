@@ -37,6 +37,12 @@ enum BorrowStatus {
   OVERDUE
 }
 
+// เพิ่ม Enum ใหม่สำหรับสถานะของ Sale
+enum SaleStatus {
+  COMPLETED
+  VOIDED
+}
+
 
 // --- Models ---
 
@@ -58,9 +64,10 @@ model User {
   addedInventoryItems InventoryItem[] @relation("AddedBy")
   createdCustomers   Customer[]
   salesMade          Sale[]
-
-  // **แก้ไข:** ความสัมพันธ์สำหรับผู้อนุมัติการยืม
   approvedBorrowings  Borrowing[] @relation("ApprovedBorrowings")
+
+  // เพิ่มความสัมพันธ์ย้อนกลับสำหรับ Sale ที่ถูกยกเลิก
+  voidedSales        Sale[]     @relation("VoidedSales")
 }
 
 model Customer {
@@ -74,8 +81,6 @@ model Customer {
   createdById  Int
   createdBy    User     @relation(fields: [createdById], references: [id])
   sales        Sale[]
-
-  // **เพิ่ม:** ความสัมพันธ์สำหรับผู้ยืม
   borrowings   Borrowing[]
 }
 
@@ -135,11 +140,9 @@ model InventoryItem {
   addedById     Int
   addedBy       User     @relation("AddedBy", fields: [addedById], references: [id])
 
-  // Relations for Sales
   saleId        Int?
   sale          Sale?    @relation(fields: [saleId], references: [id])
 
-  // Relations for Borrowing
   borrowingId   Int?
   borrowing     Borrowing? @relation(fields: [borrowingId], references: [id])
 
@@ -160,9 +163,14 @@ model Sale {
   soldBy      User     @relation(fields: [soldById], references: [id])
 
   itemsSold   InventoryItem[]
+
+  // ฟิลด์สำหรับ Soft Delete
+  status      SaleStatus @default(COMPLETED)
+  voidedAt    DateTime?
+  voidedById  Int?
+  voidedBy    User?      @relation("VoidedSales", fields: [voidedById], references: [id])
 }
 
-// **Model ใหม่สำหรับระบบยืม-คืน (แก้ไขแล้ว)**
 model Borrowing {
   id            Int       @id @default(autoincrement())
   
@@ -178,6 +186,5 @@ model Borrowing {
   dueDate       DateTime?
   returnDate    DateTime?
   notes         String?
-
   status        BorrowStatus @default(BORROWED)
 }

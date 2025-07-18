@@ -4,8 +4,11 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const bcrypt = require('bcryptjs');
 
-// ดึงผู้ใช้ทั้งหมด (สำหรับ Super Admin)
-exports.getAllUsers = async (req, res) => {
+// 1. สร้าง Object ว่างๆ เพื่อเก็บฟังก์ชันทั้งหมด
+const userController = {};
+
+// 2. เปลี่ยนจากการใช้ exports.functionName เป็นการเพิ่ม property เข้าไปใน Object
+userController.getAllUsers = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
@@ -27,17 +30,15 @@ exports.getAllUsers = async (req, res) => {
                 skip,
                 take: limit,
                 orderBy: { createdAt: 'desc' },
-                // --- START: แก้ไขส่วนนี้ ---
                 select: {
                     id: true,
-                    username: true, // <-- เพิ่มบรรทัดนี้
+                    username: true,
                     email: true,
                     name: true,
                     role: true,
                     accountStatus: true,
                     createdAt: true,
                 }
-                // --- END ---
             }),
             prisma.user.count({ where })
         ]);
@@ -56,15 +57,13 @@ exports.getAllUsers = async (req, res) => {
     }
 };
 
-// สร้างผู้ใช้ใหม่โดย Super Admin
-exports.createUser = async (req, res) => {
-    // 1. รับ username เข้ามาด้วย
+userController.createUser = async (req, res) => {
     const { email, password, name, role, username } = req.body;
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = await prisma.user.create({
             data: {
-                username, // <-- 2. เพิ่ม username ตอนสร้าง
+                username,
                 email,
                 password: hashedPassword,
                 name,
@@ -82,15 +81,13 @@ exports.createUser = async (req, res) => {
     }
 };
 
-// อัปเดตข้อมูลผู้ใช้ (Name, Email, Role)
-exports.updateUser = async (req, res) => {
+userController.updateUser = async (req, res) => {
     const { id } = req.params;
-    // 1. รับ username เข้ามาด้วย
     const { name, email, role, username } = req.body;
     try {
         const updatedUser = await prisma.user.update({
             where: { id: parseInt(id) },
-            data: { name, email, role, username }, // <-- 2. เพิ่ม username ตอนอัปเดต
+            data: { name, email, role, username },
         });
         const { password, ...userToReturn } = updatedUser;
         res.status(200).json(userToReturn);
@@ -103,10 +100,9 @@ exports.updateUser = async (req, res) => {
     }
 };
 
-// อัปเดตสถานะบัญชี (Enable/Disable)
-exports.updateUserStatus = async (req, res) => {
+userController.updateUserStatus = async (req, res) => {
     const { id } = req.params;
-    const { accountStatus } = req.body; // รับแค่ 'ACTIVE' หรือ 'DISABLED'
+    const { accountStatus } = req.body;
     try {
         const updatedUser = await prisma.user.update({
             where: { id: parseInt(id) },
@@ -119,8 +115,7 @@ exports.updateUserStatus = async (req, res) => {
     }
 };
 
-// ลบผู้ใช้
-exports.deleteUser = async (req, res) => {
+userController.deleteUser = async (req, res) => {
     const { id } = req.params;
     try {
         await prisma.user.delete({
@@ -132,14 +127,10 @@ exports.deleteUser = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับให้ผู้ใช้ที่ล็อกอินอยู่ อัปเดตข้อมูลของตัวเอง (เช่น ชื่อ)
- */
-exports.updateMyProfile = async (req, res) => {
-    const { id } = req.user; // ดึง id จาก token
-    const { name, username, email } = req.body; // 1. รับข้อมูลทั้ง 3 ฟิลด์จาก body
+userController.updateMyProfile = async (req, res) => {
+    const { id } = req.user;
+    const { name, username, email } = req.body;
 
-    // 2. ตรวจสอบว่ามีข้อมูลที่จำเป็นครบถ้วน
     if (!name || !username || !email) {
         return res.status(400).json({ error: 'Name, Username, and Email are required.' });
     }
@@ -147,17 +138,14 @@ exports.updateMyProfile = async (req, res) => {
     try {
         const updatedUser = await prisma.user.update({
             where: { id: parseInt(id) },
-            data: { name, username, email }, // 3. อัปเดตข้อมูลทั้ง 3 ฟิลด์
+            data: { name, username, email },
         });
 
-        // ส่งข้อมูลผู้ใช้ที่อัปเดตแล้วกลับไป (ยกเว้นรหัสผ่าน)
         const { password, ...userToReturn } = updatedUser;
         res.status(200).json(userToReturn);
         
     } catch (error) {
-        // 4. ดักจับ Error กรณี username หรือ email ซ้ำ
         if (error.code === 'P2002') {
-            // Prisma จะบอกว่าฟิลด์ไหนที่ซ้ำใน error.meta.target
             const field = error.meta.target[0];
             return res.status(400).json({ error: `This ${field} is already in use.` });
         }
@@ -166,11 +154,8 @@ exports.updateMyProfile = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับให้ผู้ใช้ที่ล็อกอินอยู่ เปลี่ยนรหัสผ่านของตัวเอง
- */
-exports.changeMyPassword = async (req, res) => {
-    const { id } = req.user; // ดึง id จาก token
+userController.changeMyPassword = async (req, res) => {
+    const { id } = req.user;
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
@@ -178,22 +163,18 @@ exports.changeMyPassword = async (req, res) => {
     }
 
     try {
-        // 1. ดึงข้อมูลผู้ใช้ รวมถึงรหัสผ่านปัจจุบันที่เข้ารหัสไว้
         const user = await prisma.user.findUnique({ where: { id: parseInt(id) } });
         if (!user) {
             return res.status(404).json({ error: 'User not found.' });
         }
 
-        // 2. ตรวจสอบว่ารหัสผ่านปัจจุบันที่กรอกมา ถูกต้องหรือไม่
         const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
             return res.status(400).json({ error: 'Invalid current password.' });
         }
 
-        // 3. เข้ารหัสรหัสผ่านใหม่
         const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-        // 4. อัปเดตรหัสผ่านใหม่ลงฐานข้อมูล
         await prisma.user.update({
             where: { id: parseInt(id) },
             data: { password: hashedPassword },
@@ -206,3 +187,7 @@ exports.changeMyPassword = async (req, res) => {
         res.status(500).json({ error: 'Could not change password.' });
     }
 };
+
+
+// 3. Export Object ที่รวบรวมฟังก์ชันทั้งหมดออกไป
+module.exports = userController;

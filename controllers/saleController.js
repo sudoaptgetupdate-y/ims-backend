@@ -2,11 +2,9 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-/**
- * ฟังก์ชันสำหรับสร้างรายการขายใหม่ (Transaction)
- */
-exports.createSale = async (req, res) => {
-    // 1. ดึงข้อมูลจาก request body
+const saleController = {};
+
+saleController.createSale = async (req, res) => {
     const { customerId, inventoryItemIds } = req.body;
     const soldById = req.user.id; 
 
@@ -15,9 +13,7 @@ exports.createSale = async (req, res) => {
     }
 
     try {
-        // 2. เริ่ม Transaction
         const sale = await prisma.$transaction(async (tx) => {
-            // 2.1 ดึงราคาสินค้าทั้งหมดที่จะขาย (จาก ProductModel)
             const itemsToSell = await tx.inventoryItem.findMany({
                 where: { 
                     id: { in: inventoryItemIds },
@@ -26,45 +22,33 @@ exports.createSale = async (req, res) => {
                 include: { productModel: { select: { sellingPrice: true } } },
             });
 
-            // ตรวจสอบว่าสินค้าทุกชิ้นพร้อมขายและมีข้อมูลครบถ้วน
             if (itemsToSell.length !== inventoryItemIds.length) {
                 throw new Error('One or more items are not available for sale or not found.');
             }
 
-            // --- START: Logic การคำนวณ VAT ---
             const subtotal = itemsToSell.reduce((sum, item) => sum + (item.productModel?.sellingPrice || 0), 0);
             const vatAmount = subtotal * 0.07;
             const total = subtotal + vatAmount;
-            // --- END ---
 
-            // 2.2 สร้างรายการขาย (Sale) พร้อมบันทึกค่าที่คำนวณใหม่
             const newSale = await tx.sale.create({
                 data: {
                     customerId,
                     soldById,
-                    subtotal,  // บันทึกราคารวมก่อน VAT
-                    vatAmount, // บันทึกยอดภาษี
-                    total,     // บันทึกราคารวมสุทธิ
+                    subtotal,
+                    vatAmount,
+                    total,
                 },
             });
 
-            // 2.3 อัปเดตสถานะของสินค้าทุกชิ้นในรายการขาย
             const updatedItems = await tx.inventoryItem.updateMany({
-                where: {
-                    id: { in: inventoryItemIds },
-                },
-                data: {
-                    status: 'SOLD',
-                    saleId: newSale.id,
-                },
+                where: { id: { in: inventoryItemIds } },
+                data: { status: 'SOLD', saleId: newSale.id },
             });
 
-            // ถ้าจำนวน item ที่อัปเดตได้ ไม่ตรงกับจำนวนที่ส่งมา แสดงว่ามีบางชิ้นไม่พร้อมขาย (ตรวจสอบอีกครั้งเพื่อความปลอดภัย)
             if (updatedItems.count !== inventoryItemIds.length) {
                 throw new Error('One or more items could not be updated to SOLD status.');
             }
 
-            // 2.4 ดึงข้อมูล Sale ที่สมบูรณ์กลับไป (เพื่อแสดงผล)
             const completeSale = await tx.sale.findUnique({
                 where: { id: newSale.id },
                 include: { 
@@ -77,7 +61,6 @@ exports.createSale = async (req, res) => {
             return completeSale;
         });
 
-        // 3. ถ้า Transaction สำเร็จ ให้ส่งข้อมูลกลับไป
         res.status(201).json(sale);
 
     } catch (error) {
@@ -86,24 +69,27 @@ exports.createSale = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับดึงข้อมูลการขายทั้งหมด
- */
-exports.getAllSales = async (req, res) => {
+saleController.getAllSales = async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const searchTerm = req.query.search || '';
         const skip = (page - 1) * limit;
 
-        const where = searchTerm
-            ? {
+        const whereConditions = [
+            { status: 'COMPLETED' }
+        ];
+
+        if (searchTerm) {
+            whereConditions.push({
                 OR: [
                     { customer: { name: { contains: searchTerm } } },
                     { soldBy: { name: { contains: searchTerm } } }
                 ]
-            }
-            : {};
+            });
+        }
+
+        const where = { AND: whereConditions };
         
         const [sales, totalItems] = await prisma.$transaction([
             prisma.sale.findMany({
@@ -120,8 +106,6 @@ exports.getAllSales = async (req, res) => {
             prisma.sale.count({ where })
         ]);
         
-        // --- ส่วนที่สำคัญที่สุด ---
-        // ต้องส่งข้อมูลกลับในรูปแบบ Object ที่มี key ชื่อ data และ pagination
         res.status(200).json({
             data: sales,
             pagination: {
@@ -137,10 +121,7 @@ exports.getAllSales = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับดึงข้อมูลการขายตาม ID
- */
-exports.getSaleById = async (req, res) => {
+saleController.getSaleById = async (req, res) => {
     try {
         const { id } = req.params;
         const sale = await prisma.sale.findUnique({
@@ -148,13 +129,11 @@ exports.getSaleById = async (req, res) => {
             include: {
                 customer: true,
                 soldBy: { select: { id: true, name: true, email: true } },
+                voidedBy: { select: { id: true, name: true } },
                 itemsSold: {
                     include: {
                         productModel: {
-                            include: {
-                                brand: true,
-                                category: true
-                            }
+                            include: { brand: true, category: true }
                         }
                     }
                 }
@@ -173,72 +152,60 @@ exports.getSaleById = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับลบการขาย (Transaction)
- * หมายเหตุ: ควรพิจารณาว่าการลบการขายมีผลกระทบต่อรายงานทางการเงินหรือไม่
- */
-exports.deleteSale = async (req, res) => {
+saleController.voidSale = async (req, res) => {
     const { id } = req.params;
+    const voidedById = req.user.id;
 
     try {
-        const deletedSale = await prisma.$transaction(async (tx) => {
-            const saleToDelete = await tx.sale.findUnique({
+        const voidedSale = await prisma.$transaction(async (tx) => {
+            const saleToVoid = await tx.sale.findUnique({
                 where: { id: parseInt(id) },
                 include: { itemsSold: true },
             });
 
-            if (!saleToDelete) {
-                throw new Error('Sale not found.');
-            }
+            if (!saleToVoid) throw new Error('Sale not found.');
+            if (saleToVoid.status === 'VOIDED') throw new Error('This sale has already been voided.');
 
-            const itemIdsToUpdate = saleToDelete.itemsSold.map(item => item.id);
+            const itemIdsToUpdate = saleToVoid.itemsSold.map(item => item.id);
 
             if (itemIdsToUpdate.length > 0) {
                 await tx.inventoryItem.updateMany({
                     where: { id: { in: itemIdsToUpdate } },
-                    data: {
-                        status: 'IN_STOCK',
-                        saleId: null,
-                    },
+                    data: { status: 'IN_STOCK', saleId: null },
                 });
             }
 
-            await tx.sale.delete({
+            return await tx.sale.update({
                 where: { id: parseInt(id) },
+                data: {
+                    status: 'VOIDED',
+                    voidedAt: new Date(),
+                    voidedById: voidedById,
+                },
             });
-
-            return saleToDelete;
         });
 
-        res.status(204).send();
+        res.status(200).json({ message: 'Sale has been voided successfully.', sale: voidedSale });
 
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: error.message || 'Could not delete the sale.' });
+        res.status(500).json({ error: error.message || 'Could not void the sale.' });
     }
 };
 
-/**
- * ฟังก์ชันสำหรับอัปเดตการขาย (Transaction)
- * หมายเหตุ: การอัปเดตการขายควรคำนวณ VAT ใหม่ทุกครั้ง
- */
-exports.updateSale = async (req, res) => {
+saleController.updateSale = async (req, res) => {
     const { id } = req.params;
     const { customerId, inventoryItemIds } = req.body;
 
     try {
         const updatedSale = await prisma.$transaction(async (tx) => {
-            // 1. ดึงข้อมูลการขายเดิมและสินค้าทั้งหมดที่เกี่ยวข้อง
             const originalSale = await tx.sale.findUnique({
                 where: { id: parseInt(id) },
                 include: { itemsSold: true },
             });
 
-            if (!originalSale) {
-                throw new Error("Sale not found.");
-            }
+            if (!originalSale) throw new Error("Sale not found.");
             
-            // 2. คืนสถานะสินค้าเก่าทั้งหมดที่เคยอยู่ในบิล ให้กลับไปเป็น IN_STOCK ก่อน
             const originalItemIds = originalSale.itemsSold.map(item => item.id);
             if (originalItemIds.length > 0) {
                  await tx.inventoryItem.updateMany({
@@ -247,7 +214,6 @@ exports.updateSale = async (req, res) => {
                 });
             }
 
-            // 3. ดึงข้อมูลสินค้าชุดใหม่และคำนวณ VAT
              const itemsToSell = await tx.inventoryItem.findMany({
                 where: { id: { in: inventoryItemIds } },
                 include: { productModel: { select: { sellingPrice: true } } },
@@ -259,8 +225,6 @@ exports.updateSale = async (req, res) => {
             const vatAmount = subtotal * 0.07;
             const total = subtotal + vatAmount;
 
-
-            // 4. อัปเดตสินค้าชุดใหม่ให้เป็น SOLD และผูกกับ Sale ID นี้
             if (inventoryItemIds.length > 0) {
                 await tx.inventoryItem.updateMany({
                     where: { id: { in: inventoryItemIds } },
@@ -268,8 +232,7 @@ exports.updateSale = async (req, res) => {
                 });
             }
 
-            // 5. อัปเดตข้อมูลหลักของ Sale
-            const finalSale = await tx.sale.update({
+            return await tx.sale.update({
                 where: { id: parseInt(id) },
                 data: {
                     customerId: customerId,
@@ -279,8 +242,6 @@ exports.updateSale = async (req, res) => {
                 },
                 include: { customer: true, soldBy: true, itemsSold: true },
             });
-
-            return finalSale;
         });
 
         res.status(200).json(updatedSale);
@@ -290,3 +251,5 @@ exports.updateSale = async (req, res) => {
         res.status(500).json({ error: error.message || "Could not update the sale." });
     }
 };
+
+module.exports = saleController;
