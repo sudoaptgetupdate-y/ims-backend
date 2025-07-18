@@ -280,11 +280,14 @@ customerController.getReturnedHistory = async (req, res) => {
             }
         });
         
+        // --- START: ส่วนที่แก้ไข ---
         const formattedItems = returnedRecords.map(record => ({
             ...record.inventoryItem,
             returnDate: record.returnedAt,
+            borrowDate: record.borrowing.borrowDate, // เพิ่ม borrowDate เข้าไป
             transactionId: record.borrowingId,
         }));
+        // --- END ---
         
         res.status(200).json(formattedItems);
 
