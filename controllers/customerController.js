@@ -115,6 +115,10 @@ customerController.deleteCustomer = async (req, res) => {
         });
         res.status(204).send();
     } catch (error) {
+        if (error.code === 'P2003') {
+            return res.status(400).json({ error: 'Cannot delete this customer because they are linked to sales or borrowing records.' });
+        }
+        console.error(error);
         res.status(500).json({ error: 'Could not delete the customer' });
     }
 };
@@ -280,14 +284,12 @@ customerController.getReturnedHistory = async (req, res) => {
             }
         });
         
-        // --- START: ส่วนที่แก้ไข ---
         const formattedItems = returnedRecords.map(record => ({
             ...record.inventoryItem,
             returnDate: record.returnedAt,
-            borrowDate: record.borrowing.borrowDate, // เพิ่ม borrowDate เข้าไป
+            borrowDate: record.borrowing.borrowDate,
             transactionId: record.borrowingId,
         }));
-        // --- END ---
         
         res.status(200).json(formattedItems);
 

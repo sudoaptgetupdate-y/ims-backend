@@ -30,7 +30,6 @@ exports.createCategory = async (req, res) => {
 
 exports.getAllCategories = async (req, res) => {
     try {
-        // เพิ่มเงื่อนไข: ถ้ามีการส่ง ?all=true ให้ส่งข้อมูลทั้งหมดสำหรับ dropdown
         if (req.query.all === 'true') {
             const allCategories = await prisma.category.findMany({ orderBy: { name: 'asc' } });
             return res.status(200).json(allCategories);
@@ -121,6 +120,10 @@ exports.deleteCategory = async (req, res) => {
         });
         res.status(204).send();
     } catch (error) {
+        if (error.code === 'P2003') {
+            return res.status(400).json({ error: 'Cannot delete this category because it is being used by product models.' });
+        }
+        console.error(error);
         res.status(500).json({ error: 'Could not delete the category' });
     }
 };
