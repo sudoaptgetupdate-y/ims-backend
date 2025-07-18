@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,7 +7,159 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- Enums ---
+model User {
+  id                   Int             @id @default(autoincrement())
+  email                String          @unique
+  password             String
+  name                 String
+  role                 Role            @default(EMPLOYEE)
+  accountStatus        AccountStatus   @default(ACTIVE)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  username             String          @unique
+  approvedBorrowings   Borrowing[]     @relation("ApprovedBorrowings")
+  createdBrands        Brand[]
+  createdCategories    Category[]
+  createdCustomers     Customer[]
+  addedInventoryItems  InventoryItem[] @relation("AddedBy")
+  createdProductModels ProductModel[]
+  salesMade            Sale[]
+  voidedSales          Sale[]          @relation("VoidedSales")
+}
+
+model Customer {
+  id           Int         @id @default(autoincrement())
+  customerCode String      @unique
+  name         String
+  phone        String?
+  address      String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  createdById  Int
+  borrowings   Borrowing[]
+  createdBy    User        @relation(fields: [createdById], references: [id])
+  sales        Sale[]
+
+  @@index([createdById], map: "Customer_createdById_fkey")
+}
+
+model InventoryItem {
+  id               Int                @id @default(autoincrement())
+  serialNumber     String?            @unique
+  macAddress       String?            @unique
+  status           ItemStatus         @default(IN_STOCK)
+  updatedAt        DateTime           @updatedAt
+  productModelId   Int
+  addedById        Int
+  saleId           Int?
+  createdAt        DateTime           @default(now())
+  borrowingRecords BorrowingOnItems[]
+  addedBy          User               @relation("AddedBy", fields: [addedById], references: [id])
+  productModel     ProductModel       @relation(fields: [productModelId], references: [id])
+  sale             Sale?              @relation(fields: [saleId], references: [id])
+
+  @@index([status])
+  @@index([addedById], map: "InventoryItem_addedById_fkey")
+  @@index([productModelId], map: "InventoryItem_productModelId_fkey")
+  @@index([saleId], map: "InventoryItem_saleId_fkey")
+}
+
+model Borrowing {
+  id           Int                @id @default(autoincrement())
+  borrowerId   Int
+  approvedById Int
+  borrowDate   DateTime           @default(now())
+  dueDate      DateTime?
+  returnDate   DateTime?
+  notes        String?
+  status       BorrowStatus       @default(BORROWED)
+  approvedBy   User               @relation("ApprovedBorrowings", fields: [approvedById], references: [id])
+  borrower     Customer           @relation(fields: [borrowerId], references: [id])
+  items        BorrowingOnItems[]
+
+  @@index([approvedById], map: "Borrowing_approvedById_fkey")
+  @@index([borrowerId], map: "Borrowing_borrowerId_fkey")
+}
+
+model BorrowingOnItems {
+  borrowingId     Int
+  inventoryItemId Int
+  assignedAt      DateTime      @default(now())
+  returnedAt      DateTime?
+  borrowing       Borrowing     @relation(fields: [borrowingId], references: [id])
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@id([borrowingId, inventoryItemId])
+  @@index([inventoryItemId], map: "BorrowingOnItems_inventoryItemId_fkey")
+}
+
+model Category {
+  id                   Int            @id @default(autoincrement())
+  name                 String         @unique
+  requiresMacAddress   Boolean        @default(true)
+  requiresSerialNumber Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  createdById          Int?
+  createdBy            User?          @relation(fields: [createdById], references: [id])
+  productModels        ProductModel[]
+
+  @@index([createdById], map: "Category_createdById_fkey")
+}
+
+model Brand {
+  id            Int            @id @default(autoincrement())
+  name          String         @unique
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  createdById   Int?
+  createdBy     User?          @relation(fields: [createdById], references: [id])
+  productModels ProductModel[]
+
+  @@index([createdById], map: "Brand_createdById_fkey")
+}
+
+model ProductModel {
+  id             Int             @id @default(autoincrement())
+  modelNumber    String
+  description    String?
+  sellingPrice   Float
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  categoryId     Int
+  createdById    Int
+  brandId        Int
+  inventoryItems InventoryItem[]
+  brand          Brand           @relation(fields: [brandId], references: [id])
+  category       Category        @relation(fields: [categoryId], references: [id])
+  createdBy      User            @relation(fields: [createdById], references: [id])
+
+  @@unique([modelNumber, brandId])
+  @@index([brandId], map: "ProductModel_brandId_fkey")
+  @@index([categoryId], map: "ProductModel_categoryId_fkey")
+  @@index([createdById], map: "ProductModel_createdById_fkey")
+}
+
+model Sale {
+  id         Int             @id @default(autoincrement())
+  subtotal   Float
+  vatAmount  Float
+  total      Float
+  saleDate   DateTime        @default(now())
+  customerId Int
+  soldById   Int
+  status     SaleStatus      @default(COMPLETED)
+  voidedAt   DateTime?
+  voidedById Int?
+  itemsSold  InventoryItem[]
+  customer   Customer        @relation(fields: [customerId], references: [id])
+  soldBy     User            @relation(fields: [soldById], references: [id])
+  voidedBy   User?           @relation("VoidedSales", fields: [voidedById], references: [id])
+
+  @@index([customerId], map: "Sale_customerId_fkey")
+  @@index([soldById], map: "Sale_soldById_fkey")
+  @@index([voidedById], map: "Sale_voidedById_fkey")
+}
 
 enum Role {
   EMPLOYEE
@@ -40,140 +189,4 @@ enum BorrowStatus {
 enum SaleStatus {
   COMPLETED
   VOIDED
-}
-
-// --- Models ---
-
-model User {
-  id                   Int      @id @default(autoincrement())
-  username             String   @unique
-  email                String   @unique
-  password             String
-  name                 String
-  role                 Role     @default(EMPLOYEE)
-  accountStatus        AccountStatus @default(ACTIVE)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  createdCategories    Category[]
-  createdBrands        Brand[]
-  createdProductModels ProductModel[]
-  addedInventoryItems  InventoryItem[] @relation("AddedBy")
-  createdCustomers     Customer[]
-  salesMade            Sale[]
-  approvedBorrowings   Borrowing[] @relation("ApprovedBorrowings")
-  voidedSales          Sale[]     @relation("VoidedSales")
-}
-
-model Customer {
-  id           Int      @id @default(autoincrement())
-  customerCode String   @unique
-  name         String
-  phone        String?
-  address      String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  createdById  Int
-  createdBy    User     @relation(fields: [createdById], references: [id])
-  sales        Sale[]
-  borrowings   Borrowing[]
-}
-
-model InventoryItem {
-  id               Int      @id @default(autoincrement())
-  serialNumber     String?  @unique
-  macAddress       String?  @unique
-  status           ItemStatus @default(IN_STOCK)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  productModelId   Int
-  productModel     ProductModel @relation(fields: [productModelId], references: [id])
-  addedById        Int
-  addedBy          User     @relation("AddedBy", fields: [addedById], references: [id])
-  saleId           Int?
-  sale             Sale?    @relation(fields: [saleId], references: [id])
-  borrowingRecords BorrowingOnItems[]
-
-  @@index([status])
-}
-
-model Borrowing {
-  id           Int       @id @default(autoincrement())
-  borrowerId   Int
-  borrower     Customer  @relation(fields: [borrowerId], references: [id])
-  approvedById Int
-  approvedBy   User      @relation("ApprovedBorrowings", fields: [approvedById], references: [id])
-  borrowDate   DateTime  @default(now())
-  dueDate      DateTime?
-  returnDate   DateTime?
-  notes        String?
-  status       BorrowStatus @default(BORROWED)
-  items        BorrowingOnItems[]
-}
-
-model BorrowingOnItems {
-  borrowingId     Int
-  borrowing       Borrowing @relation(fields: [borrowingId], references: [id])
-  inventoryItemId Int
-  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
-  assignedAt      DateTime @default(now())
-  returnedAt      DateTime?
-
-  @@id([borrowingId, inventoryItemId])
-}
-
-model Category {
-  id                   Int      @id @default(autoincrement())
-  name                 String   @unique
-  requiresMacAddress   Boolean  @default(true)
-  requiresSerialNumber Boolean  @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  createdById          Int?
-  createdBy            User?    @relation(fields: [createdById], references: [id])
-  productModels        ProductModel[]
-}
-
-model Brand {
-  id              Int      @id @default(autoincrement())
-  name            String   @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  createdById     Int?
-  createdBy       User?    @relation(fields: [createdById], references: [id])
-  productModels   ProductModel[]
-}
-
-model ProductModel {
-  id             Int      @id @default(autoincrement())
-  modelNumber    String
-  description    String?
-  sellingPrice   Float
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  categoryId     Int
-  category       Category @relation(fields: [categoryId], references: [id])
-  brandId        Int
-  brand          Brand    @relation(fields: [brandId], references: [id])
-  createdById    Int
-  createdBy      User     @relation(fields: [createdById], references: [id])
-  inventoryItems InventoryItem[]
-
-  @@unique([modelNumber, brandId])
-}
-
-model Sale {
-  id         Int      @id @default(autoincrement())
-  saleDate   DateTime @default(now())
-  subtotal   Float
-  vatAmount  Float
-  total      Float
-  customerId Int
-  customer   Customer @relation(fields: [customerId], references: [id])
-  soldById   Int
-  soldBy     User     @relation(fields: [soldById], references: [id])
-  itemsSold  InventoryItem[]
-  status     SaleStatus @default(COMPLETED)
-  voidedAt   DateTime?
-  voidedById Int?
-  voidedBy   User?    @relation("VoidedSales", fields: [voidedById], references: [id])
 }
