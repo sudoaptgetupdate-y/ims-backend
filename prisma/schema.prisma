@@ -37,37 +37,31 @@ enum BorrowStatus {
   OVERDUE
 }
 
-// เพิ่ม Enum ใหม่สำหรับสถานะของ Sale
 enum SaleStatus {
   COMPLETED
   VOIDED
 }
 
-
 // --- Models ---
 
 model User {
-  id                 Int      @id @default(autoincrement())
-  username           String   @unique
-  email              String   @unique
-  password           String
-  name               String
-  role               Role     @default(EMPLOYEE)
-  accountStatus      AccountStatus @default(ACTIVE)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-
-  // Relations
-  createdCategories  Category[]
-  createdBrands      Brand[]
+  id                   Int      @id @default(autoincrement())
+  username             String   @unique
+  email                String   @unique
+  password             String
+  name                 String
+  role                 Role     @default(EMPLOYEE)
+  accountStatus        AccountStatus @default(ACTIVE)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  createdCategories    Category[]
+  createdBrands        Brand[]
   createdProductModels ProductModel[]
-  addedInventoryItems InventoryItem[] @relation("AddedBy")
-  createdCustomers   Customer[]
-  salesMade          Sale[]
-  approvedBorrowings  Borrowing[] @relation("ApprovedBorrowings")
-
-  // เพิ่มความสัมพันธ์ย้อนกลับสำหรับ Sale ที่ถูกยกเลิก
-  voidedSales        Sale[]     @relation("VoidedSales")
+  addedInventoryItems  InventoryItem[] @relation("AddedBy")
+  createdCustomers     Customer[]
+  salesMade            Sale[]
+  approvedBorrowings   Borrowing[] @relation("ApprovedBorrowings")
+  voidedSales          Sale[]     @relation("VoidedSales")
 }
 
 model Customer {
@@ -82,6 +76,49 @@ model Customer {
   createdBy    User     @relation(fields: [createdById], references: [id])
   sales        Sale[]
   borrowings   Borrowing[]
+}
+
+model InventoryItem {
+  id               Int      @id @default(autoincrement())
+  serialNumber     String?  @unique
+  macAddress       String?  @unique
+  status           ItemStatus @default(IN_STOCK)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  productModelId   Int
+  productModel     ProductModel @relation(fields: [productModelId], references: [id])
+  addedById        Int
+  addedBy          User     @relation("AddedBy", fields: [addedById], references: [id])
+  saleId           Int?
+  sale             Sale?    @relation(fields: [saleId], references: [id])
+  borrowingRecords BorrowingOnItems[]
+
+  @@index([status])
+}
+
+model Borrowing {
+  id           Int       @id @default(autoincrement())
+  borrowerId   Int
+  borrower     Customer  @relation(fields: [borrowerId], references: [id])
+  approvedById Int
+  approvedBy   User      @relation("ApprovedBorrowings", fields: [approvedById], references: [id])
+  borrowDate   DateTime  @default(now())
+  dueDate      DateTime?
+  returnDate   DateTime?
+  notes        String?
+  status       BorrowStatus @default(BORROWED)
+  items        BorrowingOnItems[]
+}
+
+model BorrowingOnItems {
+  borrowingId     Int
+  borrowing       Borrowing @relation(fields: [borrowingId], references: [id])
+  inventoryItemId Int
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  assignedAt      DateTime @default(now())
+  returnedAt      DateTime?
+
+  @@id([borrowingId, inventoryItemId])
 }
 
 model Category {
@@ -107,84 +144,36 @@ model Brand {
 }
 
 model ProductModel {
-  id            Int      @id @default(autoincrement())
-  modelNumber   String
-  description   String?
-  sellingPrice  Float
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  categoryId    Int
-  category      Category @relation(fields: [categoryId], references: [id])
-  brandId       Int
-  brand         Brand    @relation(fields: [brandId], references: [id])
-  createdById   Int
-  createdBy     User     @relation(fields: [createdById], references: [id])
-
+  id             Int      @id @default(autoincrement())
+  modelNumber    String
+  description    String?
+  sellingPrice   Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  categoryId     Int
+  category       Category @relation(fields: [categoryId], references: [id])
+  brandId        Int
+  brand          Brand    @relation(fields: [brandId], references: [id])
+  createdById    Int
+  createdBy      User     @relation(fields: [createdById], references: [id])
   inventoryItems InventoryItem[]
 
   @@unique([modelNumber, brandId])
 }
 
-model InventoryItem {
-  id            Int      @id @default(autoincrement())
-  serialNumber  String?  @unique
-  macAddress    String?  @unique
-  status        ItemStatus @default(IN_STOCK)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  productModelId Int
-  productModel   ProductModel @relation(fields: [productModelId], references: [id])
-
-  addedById     Int
-  addedBy       User     @relation("AddedBy", fields: [addedById], references: [id])
-
-  saleId        Int?
-  sale          Sale?    @relation(fields: [saleId], references: [id])
-
-  borrowingId   Int?
-  borrowing     Borrowing? @relation(fields: [borrowingId], references: [id])
-
-  @@index([status])
-}
-
 model Sale {
-  id          Int      @id @default(autoincrement())
-  saleDate    DateTime @default(now())
-  subtotal    Float
-  vatAmount   Float
-  total       Float
-
-  customerId  Int
-  customer    Customer @relation(fields: [customerId], references: [id])
-
-  soldById    Int
-  soldBy      User     @relation(fields: [soldById], references: [id])
-
-  itemsSold   InventoryItem[]
-
-  // ฟิลด์สำหรับ Soft Delete
-  status      SaleStatus @default(COMPLETED)
-  voidedAt    DateTime?
-  voidedById  Int?
-  voidedBy    User?      @relation("VoidedSales", fields: [voidedById], references: [id])
-}
-
-model Borrowing {
-  id            Int       @id @default(autoincrement())
-  
-  borrowerId    Int
-  borrower      Customer  @relation(fields: [borrowerId], references: [id])
-  
-  approvedById  Int
-  approvedBy    User      @relation("ApprovedBorrowings", fields: [approvedById], references: [id])
-  
-  items         InventoryItem[]
-
-  borrowDate    DateTime  @default(now())
-  dueDate       DateTime?
-  returnDate    DateTime?
-  notes         String?
-  status        BorrowStatus @default(BORROWED)
+  id         Int      @id @default(autoincrement())
+  saleDate   DateTime @default(now())
+  subtotal   Float
+  vatAmount  Float
+  total      Float
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id])
+  soldById   Int
+  soldBy     User     @relation(fields: [soldById], references: [id])
+  itemsSold  InventoryItem[]
+  status     SaleStatus @default(COMPLETED)
+  voidedAt   DateTime?
+  voidedById Int?
+  voidedBy   User?    @relation("VoidedSales", fields: [voidedById], references: [id])
 }

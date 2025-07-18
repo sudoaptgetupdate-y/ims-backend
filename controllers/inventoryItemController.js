@@ -1,9 +1,9 @@
 // controllers/inventoryItemController.js
-
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const inventoryItemController = {};
 
-exports.addInventoryItem = async (req, res) => {
+inventoryItemController.addInventoryItem = async (req, res) => {
     try {
         const { serialNumber, macAddress, productModelId } = req.body;
         const userId = req.user.id;
@@ -29,36 +29,17 @@ exports.addInventoryItem = async (req, res) => {
     }
 };
 
-exports.getAllInventoryItems = async (req, res) => {
+inventoryItemController.getAllInventoryItems = async (req, res) => {
     try {
         if (req.query.all === 'true') {
-            const searchTerm = req.query.search || '';
-            
-            const where = { 
-                status: 'IN_STOCK'
-            };
-
-            if (searchTerm) {
-                where.OR = [
-                    { serialNumber: { contains: searchTerm } },
-                    { macAddress: { equals: searchTerm } },
-                    { productModel: { modelNumber: { contains: searchTerm } } }
-                ];
-            }
-
             const allItems = await prisma.inventoryItem.findMany({
-                 where,
+                 where: { status: 'IN_STOCK' },
                  include: {
                     productModel: {
-                        include: {
-                            brand: true,
-                            category: true
-                        }
-                    }
+                        include: { brand: true, category: true }
+                    },
                  },
-                 orderBy: {
-                    updatedAt: 'desc'
-                 }
+                 orderBy: { updatedAt: 'desc' }
             });
             return res.status(200).json(allItems);
         }
@@ -89,14 +70,27 @@ exports.getAllInventoryItems = async (req, res) => {
                 orderBy: { updatedAt: 'desc' },
                 include: {
                     productModel: { include: { category: true, brand: true } },
-                    addedBy: { select: { name: true } }
+                    addedBy: { select: { name: true } },
+                    borrowingRecords: {
+                        where: { returnedAt: null },
+                        select: { borrowingId: true }
+                    }
                 }
             }),
             prisma.inventoryItem.count({ where })
         ]);
 
+        const formattedItems = items.map(item => {
+            const activeBorrowing = item.borrowingRecords.length > 0 ? item.borrowingRecords[0] : null;
+            const { borrowingRecords, ...restOfItem } = item;
+            return {
+                ...restOfItem,
+                borrowingId: activeBorrowing ? activeBorrowing.borrowingId : null,
+            };
+        });
+
         res.status(200).json({
-            data: items,
+            data: formattedItems,
             pagination: {
                 totalItems,
                 totalPages: Math.ceil(totalItems / limit),
@@ -111,7 +105,7 @@ exports.getAllInventoryItems = async (req, res) => {
     }
 };
 
-exports.getInventoryItemById = async (req, res) => {
+inventoryItemController.getInventoryItemById = async (req, res) => {
     try {
         const { id } = req.params;
         const item = await prisma.inventoryItem.findUnique({
@@ -127,7 +121,7 @@ exports.getInventoryItemById = async (req, res) => {
     }
 };
 
-exports.updateInventoryItem = async (req, res) => {
+inventoryItemController.updateInventoryItem = async (req, res) => {
     try {
         const { id } = req.params;
         const { serialNumber, macAddress, status, productModelId } = req.body; 
@@ -152,37 +146,41 @@ exports.updateInventoryItem = async (req, res) => {
     }
 };
 
-// --- START: ส่วนที่แก้ไข ---
-exports.deleteInventoryItem = async (req, res) => {
+inventoryItemController.deleteInventoryItem = async (req, res) => {
     const { id } = req.params;
     try {
-        // 1. ค้นหาสินค้าและสถานะก่อนทำการลบ
         const itemToDelete = await prisma.inventoryItem.findUnique({
             where: { id: parseInt(id) },
+            include: {
+                borrowingRecords: {
+                    where: { returnedAt: null }
+                }
+            }
         });
 
         if (!itemToDelete) {
             return res.status(404).json({ error: 'Item not found.' });
         }
-
-        // 2. ตรวจสอบสถานะ: ถ้าถูกขายหรือยืมไปแล้ว ไม่อนุญาตให้ลบ
-        if (itemToDelete.status === 'SOLD' || itemToDelete.status === 'BORROWED') {
-            return res.status(400).json({ error: `Cannot delete item because its status is '${itemToDelete.status}'.` });
+        
+        if (itemToDelete.status === 'SOLD' || itemToDelete.borrowingRecords.length > 0) {
+            const reason = itemToDelete.status === 'SOLD' ? 'SOLD' : 'actively BORROWED';
+            return res.status(400).json({ error: `Cannot delete item. It is currently ${reason}.` });
         }
-
-        // 3. ถ้าสถานะปลอดภัย จึงทำการลบ
-        await prisma.inventoryItem.delete({
-            where: { id: parseInt(id) },
+        
+        await prisma.$transaction(async (tx) => {
+            await tx.borrowingOnItems.deleteMany({
+                where: { inventoryItemId: parseInt(id) }
+            });
+            await tx.inventoryItem.delete({
+                where: { id: parseInt(id) },
+            });
         });
 
         res.status(204).send();
     } catch (error) {
-        // ดักจับ error อื่นๆ จาก Prisma เผื่อไว้
-        if (error.code === 'P2003') { // Foreign key constraint
-             return res.status(400).json({ error: 'This item cannot be deleted as it is referenced elsewhere.' });
-        }
         console.error("Delete Item Error:", error);
         res.status(500).json({ error: 'Could not delete the item.' });
     }
 };
-// --- END ---
+
+module.exports = inventoryItemController;

@@ -1,12 +1,9 @@
 // controllers/customerController.js
-
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const customerController = {};
 
-/**
- * ฟังก์ชันสำหรับสร้าง Customer ใหม่
- */
-exports.createCustomer = async (req, res) => {
+customerController.createCustomer = async (req, res) => {
     try {
         const { customerCode, name, phone, address } = req.body;
         const userId = req.user.id; 
@@ -29,10 +26,7 @@ exports.createCustomer = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับดึงข้อมูล Customer ทั้งหมด
- */
-exports.getAllCustomers = async (req, res) => {
+customerController.getAllCustomers = async (req, res) => {
     try {
         if (req.query.all === 'true') {
             const allCustomers = await prisma.customer.findMany({
@@ -83,10 +77,7 @@ exports.getAllCustomers = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับดึงข้อมูล Customer เพียงชิ้นเดียวตาม ID
- */
-exports.getCustomerById = async (req, res) => {
+customerController.getCustomerById = async (req, res) => {
     try {
         const { id } = req.params;
         const customer = await prisma.customer.findUnique({
@@ -102,10 +93,7 @@ exports.getCustomerById = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับแก้ไขข้อมูล Customer
- */
-exports.updateCustomer = async (req, res) => {
+customerController.updateCustomer = async (req, res) => {
     try {
         const { id } = req.params;
         const { customerCode, name, phone, address } = req.body;
@@ -119,40 +107,33 @@ exports.updateCustomer = async (req, res) => {
     }
 };
 
-/**
- * ฟังก์ชันสำหรับลบ Customer
- */
-exports.deleteCustomer = async (req, res) => {
+customerController.deleteCustomer = async (req, res) => {
     try {
         const { id } = req.params;
         await prisma.customer.delete({
             where: { id: parseInt(id) },
         });
-        res.status(204).send(); // No Content
+        res.status(204).send();
     } catch (error) {
         res.status(500).json({ error: 'Could not delete the customer' });
     }
 };
 
-/**
- * ดึงประวัติทั้งหมด (การซื้อและการยืม) ของลูกค้าคนเดียว
- */
-exports.getCustomerHistory = async (req, res) => {
+customerController.getCustomerHistory = async (req, res) => {
     const { id } = req.params;
-
     try {
         const sales = await prisma.sale.findMany({
             where: { customerId: parseInt(id) },
-            include: {
-                itemsSold: { include: { productModel: true } }
-            },
+            include: { itemsSold: { include: { productModel: true } } },
             orderBy: { saleDate: 'desc' }
         });
 
         const borrowings = await prisma.borrowing.findMany({
             where: { borrowerId: parseInt(id) },
-            include: {
-                items: { include: { productModel: true } }
+            include: { 
+                items: {
+                    include: { inventoryItem: { include: { productModel: true } } }
+                }
             },
             orderBy: { borrowDate: 'desc' }
         });
@@ -177,48 +158,46 @@ exports.getCustomerHistory = async (req, res) => {
             .sort((a, b) => new Date(b.date) - new Date(a.date));
 
         res.status(200).json(combinedHistory);
-
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Could not fetch customer history.' });
     }
 };
 
-/**
- * ดึงข้อมูลสรุป (Summary) ของลูกค้าคนเดียว (ฉบับแก้ไขล่าสุด)
- */
-exports.getCustomerSummary = async (req, res) => {
+customerController.getCustomerSummary = async (req, res) => {
     const { id } = req.params;
     const customerId = parseInt(id);
 
     try {
         const purchases = await prisma.sale.findMany({
-            where: { customerId },
-            include: {
-                itemsSold: { include: { productModel: true } }
-            },
+            where: { customerId, status: 'COMPLETED' },
+            include: { itemsSold: { include: { productModel: true } } },
             orderBy: { saleDate: 'desc' }
         });
 
         const borrowings = await prisma.borrowing.findMany({
             where: { borrowerId: customerId },
             include: {
-                items: { include: { productModel: true } }
+                items: { 
+                    include: {
+                        inventoryItem: { include: { productModel: true } }
+                    }
+                }
             },
             orderBy: { borrowDate: 'desc' }
         });
 
         const allBorrowedItems = borrowings.flatMap(b =>
-            b.items.map(item => ({
-                ...item,
+            b.items.map(boi => ({
+                ...boi.inventoryItem,
                 borrowDate: b.borrowDate,
                 dueDate: b.dueDate,
-                returnDate: b.status !== 'BORROWED' ? b.returnDate : null,
+                returnedAt: boi.returnedAt,
             }))
         );
 
-        const currentlyBorrowedItems = allBorrowedItems.filter(item => item.status === 'BORROWED');
-        const returnedItemsHistory = allBorrowedItems.filter(item => item.status !== 'BORROWED');
+        const currentlyBorrowedItems = allBorrowedItems.filter(item => item.returnedAt === null);
+        const returnedItemsHistory = allBorrowedItems.filter(item => item.returnedAt !== null);
 
         const purchaseHistory = purchases.flatMap(sale =>
             sale.itemsSold.map(item => ({
@@ -233,14 +212,13 @@ exports.getCustomerSummary = async (req, res) => {
             currentlyBorrowedItems,
             returnedItemsHistory
         });
-
     } catch (error) {
         console.error("Error fetching customer summary:", error);
         res.status(500).json({ error: 'Could not fetch customer summary.' });
     }
 };
 
-exports.getActiveBorrowings = async (req, res) => {
+customerController.getActiveBorrowings = async (req, res) => {
     const { id } = req.params;
     const customerId = parseInt(id);
 
@@ -252,71 +230,62 @@ exports.getActiveBorrowings = async (req, res) => {
             },
             include: {
                 items: {
-                    where: {
-                        status: 'BORROWED'
-                    },
-                    include: {
-                        productModel: true,
-                    },
-                },
+                    where: { returnedAt: null },
+                    include: { 
+                        inventoryItem: {
+                            include: { productModel: true }
+                        }
+                    }
+                }
             },
-            orderBy: {
-                borrowDate: 'asc',
-            },
+            orderBy: { borrowDate: 'asc' },
         });
+        
+        const formattedActiveBorrowings = activeBorrowings.map(b => ({
+            ...b,
+            items: b.items.map(i => i.inventoryItem)
+        }));
 
-        res.status(200).json(activeBorrowings);
+        res.status(200).json(formattedActiveBorrowings);
     } catch (error) {
         console.error("Error fetching active borrowings:", error);
         res.status(500).json({ error: 'Could not fetch active borrowings.' });
     }
 };
 
-// --- START: ส่วนที่แก้ไข ---
-exports.getReturnedHistory = async (req, res) => {
+customerController.getReturnedHistory = async (req, res) => {
     const { id } = req.params;
     const customerId = parseInt(id);
 
     try {
-        // ค้นหารายการสินค้าทั้งหมดที่เคยถูกยืมโดยลูกค้ารายนี้ และตอนนี้ไม่ได้อยู่ในสถานะ 'BORROWED'
-        const returnedItems = await prisma.inventoryItem.findMany({
+        const returnedRecords = await prisma.borrowingOnItems.findMany({
             where: {
-                // ต้องมี borrowingId เพื่อยืนยันว่าเคยถูกยืม
-                borrowingId: { not: null },
-                // การยืมนั้นต้องเป็นของลูกค้ารายนี้
                 borrowing: {
-                    borrowerId: customerId
+                    borrowerId: customerId,
                 },
-                // และสถานะปัจจุบันของสินค้าต้อง *ไม่ใช่* 'BORROWED'
-                NOT: {
-                    status: 'BORROWED'
+                returnedAt: {
+                    not: null,
                 }
             },
             include: {
-                // ดึงข้อมูล ProductModel มาเพื่อแสดงผล
-                productModel: true,
-                // ดึงข้อมูลการยืม (Borrowing) มาเพื่อเอาวันที่คืน (returnDate)
-                borrowing: true
+                inventoryItem: {
+                    include: {
+                        productModel: true,
+                    }
+                },
+                borrowing: true,
             },
             orderBy: {
-                // จัดเรียงตามวันที่อัปเดตล่าสุด (ซึ่งก็คือตอนที่สินค้าถูกคืน)
-                updatedAt: 'desc'
+                returnedAt: 'desc',
             }
         });
-
-        // จัดรูปแบบข้อมูลให้ตรงกับที่ Frontend คาดหวัง
-        const formattedItems = returnedItems.map(item => {
-            const { borrowing, ...restOfItem } = item;
-            return {
-                ...restOfItem,
-                productModel: item.productModel,
-                // ใช้ returnDate จาก transaction การยืมหลัก
-                returnDate: borrowing.returnDate,
-                // transactionId คือ ID ของใบยืม
-                transactionId: borrowing.id
-            };
-        });
-
+        
+        const formattedItems = returnedRecords.map(record => ({
+            ...record.inventoryItem,
+            returnDate: record.returnedAt,
+            transactionId: record.borrowingId,
+        }));
+        
         res.status(200).json(formattedItems);
 
     } catch (error) {
@@ -324,12 +293,8 @@ exports.getReturnedHistory = async (req, res) => {
         res.status(500).json({ error: 'Could not fetch returned items history.' });
     }
 };
-// --- END: ส่วนที่แก้ไข ---
 
-/**
- * ดึงประวัติอุปกรณ์ที่เคยซื้อทั้งหมด
- */
-exports.getPurchaseHistory = async (req, res) => {
+customerController.getPurchaseHistory = async (req, res) => {
     const { id } = req.params;
     const customerId = parseInt(id);
 
@@ -344,7 +309,6 @@ exports.getPurchaseHistory = async (req, res) => {
             orderBy: { saleDate: 'desc' }
         });
 
-        // คลี่ข้อมูลออกมาเป็นรายชิ้น
         const purchasedItems = sales.flatMap(s => 
             s.itemsSold.map(item => ({
                 ...item,
@@ -360,3 +324,5 @@ exports.getPurchaseHistory = async (req, res) => {
         res.status(500).json({ error: 'Could not fetch purchase history.' });
     }
 };
+
+module.exports = customerController;

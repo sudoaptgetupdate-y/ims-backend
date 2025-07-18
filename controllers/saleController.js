@@ -4,6 +4,8 @@ const prisma = new PrismaClient();
 
 const saleController = {};
 
+// ... (ฟังก์ชัน createSale, getAllSales ไม่มีการเปลี่ยนแปลง)
+
 saleController.createSale = async (req, res) => {
     const { customerId, inventoryItemIds } = req.body;
     const soldById = req.user.id; 
@@ -74,11 +76,14 @@ saleController.getAllSales = async (req, res) => {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const searchTerm = req.query.search || '';
+        const statusFilter = req.query.status || 'All'; 
         const skip = (page - 1) * limit;
 
-        const whereConditions = [
-            { status: 'COMPLETED' }
-        ];
+        const whereConditions = [];
+
+        if (statusFilter && statusFilter !== 'All') {
+            whereConditions.push({ status: statusFilter });
+        }
 
         if (searchTerm) {
             whereConditions.push({
@@ -89,7 +94,7 @@ saleController.getAllSales = async (req, res) => {
             });
         }
 
-        const where = { AND: whereConditions };
+        const where = whereConditions.length > 0 ? { AND: whereConditions } : {};
         
         const [sales, totalItems] = await prisma.$transaction([
             prisma.sale.findMany({
@@ -121,6 +126,8 @@ saleController.getAllSales = async (req, res) => {
     }
 };
 
+
+// --- START: ส่วนที่แก้ไข ---
 saleController.getSaleById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -133,7 +140,11 @@ saleController.getSaleById = async (req, res) => {
                 itemsSold: {
                     include: {
                         productModel: {
-                            include: { brand: true, category: true }
+                            // เพิ่มการ include ข้อมูล Brand และ Category เข้ามาที่นี่
+                            include: {
+                                brand: true,
+                                category: true
+                            }
                         }
                     }
                 }
@@ -151,6 +162,7 @@ saleController.getSaleById = async (req, res) => {
         res.status(500).json({ error: 'Could not fetch the sale.' });
     }
 };
+// --- END ---
 
 saleController.voidSale = async (req, res) => {
     const { id } = req.params;
@@ -171,7 +183,9 @@ saleController.voidSale = async (req, res) => {
             if (itemIdsToUpdate.length > 0) {
                 await tx.inventoryItem.updateMany({
                     where: { id: { in: itemIdsToUpdate } },
-                    data: { status: 'IN_STOCK', saleId: null },
+                    data: {
+                        status: 'IN_STOCK',
+                    },
                 });
             }
 

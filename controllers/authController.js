@@ -5,50 +5,33 @@ const prisma = new PrismaClient();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-/**
- * ฟังก์ชันสำหรับลงทะเบียนผู้ใช้ใหม่
- */
 exports.register = async (req, res) => {
     try {
-        // 1. ดึงข้อมูลจาก request body
-        const { email, password, name } = req.body;
-
-        // 2. เข้ารหัสผ่าน (Hashing)
+        const { email, password, name, username } = req.body;
         const hashedPassword = await bcrypt.hash(password, 10);
-
-        // 3. สร้างผู้ใช้ใหม่ในฐานข้อมูล
         const newUser = await prisma.user.create({
             data: {
+                username,
                 email,
                 name,
                 password: hashedPassword,
             },
         });
-
-        // 4. ส่งข้อมูลผู้ใช้ใหม่กลับไป (แต่ไม่ต้องส่งรหัสผ่านกลับไป)
         const userToReturn = { ...newUser };
         delete userToReturn.password;
-
         res.status(201).json(userToReturn);
     } catch (error) {
-        // 5. ดักจับ Error กรณี Email ซ้ำ (P2002)
         if (error.code === 'P2002') {
-            return res.status(400).json({ error: 'This email is already in use.' });
+            return res.status(400).json({ error: 'This email or username is already in use.' });
         }
         console.error(error);
         res.status(500).json({ error: 'Could not register the user.' });
     }
 };
 
-/**
- * ฟังก์ชันสำหรับเข้าสู่ระบบ
- */
 exports.login = async (req, res) => {
     try {
-        // 1. เปลี่ยนจาก email เป็น username
         const { username, password } = req.body;
-
-        // 2. ค้นหาผู้ใช้จาก username แทน email
         const user = await prisma.user.findUnique({
             where: { username },
         });
@@ -67,14 +50,18 @@ exports.login = async (req, res) => {
             return res.status(400).json({ error: 'Invalid credentials' });
         }
 
+        // --- START: ส่วนที่แก้ไข ---
+        // เพิ่ม email เข้าไปใน payload ที่จะส่งกลับไปให้หน้าบ้าน
         const payload = {
             user: {
                 id: user.id,
-                username: user.username, // <-- เปลี่ยนเป็น username
+                username: user.username,
                 name: user.name,
                 role: user.role,
+                email: user.email, // <-- เพิ่มบรรทัดนี้
             },
         };
+        // --- END ---
 
         const token = jwt.sign(
             payload,
