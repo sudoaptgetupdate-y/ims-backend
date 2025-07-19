@@ -1,5 +1,4 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// prisma/schema.prisma
 
 generator client {
   provider = "prisma-client-js"
@@ -11,73 +10,67 @@ datasource db {
 }
 
 // --- Enums ---
-
-// START: เพิ่ม Enum ใหม่สำหรับแยกประเภท Item
 enum ItemType {
   SALE
   ASSET
 }
-// END
-
 enum Role {
   EMPLOYEE
   ADMIN
   SUPER_ADMIN
 }
-
 enum AccountStatus {
   ACTIVE
   DISABLED
 }
-
 enum ItemStatus {
-  // สถานะสำหรับของขาย (SALE)
   IN_STOCK
   SOLD
   RESERVED
   DEFECTIVE
   BORROWED
-  
-  // สถานะสำหรับทรัพย์สิน (ASSET)
   IN_WAREHOUSE
   ASSIGNED
   DECOMMISSIONED
 }
-
 enum BorrowStatus {
   BORROWED
   RETURNED
   OVERDUE
 }
-
 enum SaleStatus {
   COMPLETED
   VOIDED
 }
+enum AssignmentStatus {
+  ASSIGNED
+  PARTIALLY_RETURNED
+  RETURNED
+}
 
 // --- Models ---
-
 model User {
-  id                   Int      @id @default(autoincrement())
-  username             String   @unique
-  email                String   @unique
-  password             String
-  name                 String
-  role                 Role     @default(EMPLOYEE)
-  accountStatus        AccountStatus @default(ACTIVE)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-  createdCategories    Category[]
-  createdBrands        Brand[]
-  createdProductModels ProductModel[]
-  addedInventoryItems  InventoryItem[] @relation("AddedBy")
-  createdCustomers     Customer[]
-  salesMade            Sale[]
-  approvedBorrowings   Borrowing[]     @relation("ApprovedBorrowings")
-  voidedSales          Sale[]          @relation("VoidedSales")
-
-  // เพิ่มความสัมพันธ์ว่า User คนนี้มีทรัพย์สินอะไรบ้าง
-  assignedAssets       InventoryItem[] @relation("AssignedAssets")
+  id                    Int      @id @default(autoincrement())
+  username              String   @unique
+  email                 String   @unique
+  password              String
+  name                  String
+  role                  Role     @default(EMPLOYEE)
+  accountStatus         AccountStatus @default(ACTIVE)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  createdCategories     Category[]
+  createdBrands         Brand[]
+  createdProductModels  ProductModel[]
+  addedInventoryItems   InventoryItem[] @relation("AddedBy")
+  createdCustomers      Customer[]
+  salesMade             Sale[]
+  approvedBorrowings    Borrowing[]     @relation("ApprovedBorrowings")
+  voidedSales           Sale[]          @relation("VoidedSales")
+  
+  approvedAssignments   AssetAssignment[] @relation("ApprovedAssignments")
+  receivedAssignments   AssetAssignment[] @relation("ReceivedAssignments")
+  assetHistory          AssetHistory[]
 }
 
 model Customer {
@@ -95,26 +88,24 @@ model Customer {
 }
 
 model InventoryItem {
-  id               Int      @id @default(autoincrement())
-  itemType         ItemType @default(SALE) // 1. เพิ่มประเภท Item
-  assetCode        String?  @unique      // 2. เพิ่มรหัสทรัพย์สิน
-  serialNumber     String?  @unique
-  macAddress       String?  @unique
-  status           ItemStatus @default(IN_STOCK)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  productModelId   Int
-  productModel     ProductModel @relation(fields: [productModelId], references: [id])
-  addedById        Int
-  addedBy          User     @relation("AddedBy", fields: [addedById], references: [id])
+  id                  Int                      @id @default(autoincrement())
+  itemType            ItemType                 @default(SALE)
+  assetCode           String?                  @unique
+  serialNumber        String?                  @unique
+  macAddress          String?                  @unique
+  status              ItemStatus               @default(IN_STOCK)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  productModelId      Int
+  productModel        ProductModel             @relation(fields: [productModelId], references: [id])
+  addedById           Int
+  addedBy             User                     @relation("AddedBy", fields: [addedById], references: [id])
   
-  // 3. เพิ่มความสัมพันธ์กับผู้รับผิดชอบ
-  assignedToId     Int?
-  assignedTo       User?    @relation("AssignedAssets", fields: [assignedToId], references: [id])
-
-  saleId           Int?
-  sale             Sale?    @relation(fields: [saleId], references: [id])
-  borrowingRecords BorrowingOnItems[]
+  assignmentRecords   AssetAssignmentOnItems[]
+  assignmentHistory   AssetHistory[]
+  saleId              Int?
+  sale                Sale?                    @relation(fields: [saleId], references: [id])
+  borrowingRecords    BorrowingOnItems[]
 
   @@index([status])
   @@index([itemType])
@@ -141,7 +132,6 @@ model BorrowingOnItems {
   inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
   assignedAt      DateTime @default(now())
   returnedAt      DateTime?
-
   @@id([borrowingId, inventoryItemId])
 }
 
@@ -181,7 +171,6 @@ model ProductModel {
   createdById    Int
   createdBy      User     @relation(fields: [createdById], references: [id])
   inventoryItems InventoryItem[]
-
   @@unique([modelNumber, brandId])
 }
 
@@ -200,4 +189,38 @@ model Sale {
   voidedAt   DateTime?
   voidedById Int?
   voidedBy   User?    @relation("VoidedSales", fields: [voidedById], references: [id])
+}
+
+model AssetHistory {
+  id              Int           @id @default(autoincrement())
+  inventoryItemId Int
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  assignedToId    Int
+  assignedTo      User          @relation(fields: [assignedToId], references: [id])
+  assignedAt      DateTime      @default(now())
+  returnedAt      DateTime?
+  @@index([inventoryItemId])
+}
+
+model AssetAssignment {
+  id            Int                    @id @default(autoincrement())
+  assigneeId    Int
+  assignee      User                   @relation("ReceivedAssignments", fields: [assigneeId], references: [id])
+  approvedById  Int
+  approvedBy    User                   @relation("ApprovedAssignments", fields: [approvedById], references: [id])
+  assignedDate  DateTime               @default(now())
+  returnDate    DateTime?
+  notes         String?
+  status        AssignmentStatus       @default(ASSIGNED)
+  items         AssetAssignmentOnItems[]
+}
+
+model AssetAssignmentOnItems {
+  assignmentId    Int
+  assignment      AssetAssignment @relation(fields: [assignmentId], references: [id])
+  inventoryItemId Int
+  inventoryItem   InventoryItem   @relation(fields: [inventoryItemId], references: [id])
+  assignedAt      DateTime        @default(now())
+  returnedAt      DateTime?
+  @@id([assignmentId, inventoryItemId])
 }

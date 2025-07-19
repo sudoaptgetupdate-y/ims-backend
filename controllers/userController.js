@@ -1,15 +1,24 @@
 // controllers/userController.js
 
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient, ItemType } = require('@prisma/client');
 const prisma = new PrismaClient();
 const bcrypt = require('bcryptjs');
 
-// 1. สร้าง Object ว่างๆ เพื่อเก็บฟังก์ชันทั้งหมด
 const userController = {};
 
-// 2. เปลี่ยนจากการใช้ exports.functionName เป็นการเพิ่ม property เข้าไปใน Object
+// ... (โค้ดส่วนบน getAllUsers, getUserById, createUser, updateUser, etc. เหมือนเดิม) ...
+
 userController.getAllUsers = async (req, res) => {
     try {
+        if (req.query.all === 'true') {
+            const allUsers = await prisma.user.findMany({
+                where: { accountStatus: 'ACTIVE' },
+                orderBy: { name: 'asc' },
+                select: { id: true, name: true, username: true, email: true }
+            });
+            return res.status(200).json(allUsers);
+        }
+
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const searchTerm = req.query.search || '';
@@ -54,6 +63,22 @@ userController.getAllUsers = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: 'Could not fetch users.' });
+    }
+};
+
+userController.getUserById = async (req, res) => {
+    const { id } = req.params;
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: parseInt(id) },
+            select: { id: true, name: true, username: true, email: true, role: true }
+        });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+        res.status(200).json(user);
+    } catch (error) {
+        res.status(500).json({ error: 'Could not fetch user.' });
     }
 };
 
@@ -188,6 +213,52 @@ userController.changeMyPassword = async (req, res) => {
     }
 };
 
+// --- START: ส่วนที่แก้ไข ---
+userController.getUserAssets = async (req, res) => {
+    const { id: userId } = req.params;
+    try {
+        const history = await prisma.assetHistory.findMany({
+            where: { assignedToId: parseInt(userId) },
+            include: {
+                inventoryItem: {
+                    include: {
+                        productModel: true
+                    }
+                }
+            },
+            orderBy: { assignedAt: 'desc' }
+        });
+        res.status(200).json(history);
+    } catch (error) {
+        console.error("Could not fetch user's asset history:", error);
+        res.status(500).json({ error: "Could not fetch user's asset history." });
+    }
+};
 
-// 3. Export Object ที่รวบรวมฟังก์ชันทั้งหมดออกไป
+userController.getUserAssetSummary = async (req, res) => {
+    const { id } = req.params;
+    const userId = parseInt(id);
+    try {
+        const currentlyAssigned = await prisma.assetHistory.count({
+            where: { 
+                assignedToId: userId,
+                returnedAt: null
+            }
+        });
+
+        const totalEverAssigned = await prisma.assetHistory.count({
+            where: { assignedToId: userId }
+        });
+
+        res.status(200).json({
+            currentlyAssigned,
+            totalEverAssigned
+        });
+    } catch (error) {
+        console.error("Could not fetch user's asset summary:", error);
+        res.status(500).json({ error: "Could not fetch user's asset summary." });
+    }
+};
+// --- END ---
+
 module.exports = userController;
