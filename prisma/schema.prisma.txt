@@ -12,6 +12,13 @@ datasource db {
 
 // --- Enums ---
 
+// START: เพิ่ม Enum ใหม่สำหรับแยกประเภท Item
+enum ItemType {
+  SALE
+  ASSET
+}
+// END
+
 enum Role {
   EMPLOYEE
   ADMIN
@@ -24,11 +31,17 @@ enum AccountStatus {
 }
 
 enum ItemStatus {
+  // สถานะสำหรับของขาย (SALE)
   IN_STOCK
   SOLD
   RESERVED
   DEFECTIVE
   BORROWED
+  
+  // สถานะสำหรับทรัพย์สิน (ASSET)
+  IN_WAREHOUSE
+  ASSIGNED
+  DECOMMISSIONED
 }
 
 enum BorrowStatus {
@@ -60,8 +73,11 @@ model User {
   addedInventoryItems  InventoryItem[] @relation("AddedBy")
   createdCustomers     Customer[]
   salesMade            Sale[]
-  approvedBorrowings   Borrowing[] @relation("ApprovedBorrowings")
-  voidedSales          Sale[]     @relation("VoidedSales")
+  approvedBorrowings   Borrowing[]     @relation("ApprovedBorrowings")
+  voidedSales          Sale[]          @relation("VoidedSales")
+
+  // เพิ่มความสัมพันธ์ว่า User คนนี้มีทรัพย์สินอะไรบ้าง
+  assignedAssets       InventoryItem[] @relation("AssignedAssets")
 }
 
 model Customer {
@@ -80,6 +96,8 @@ model Customer {
 
 model InventoryItem {
   id               Int      @id @default(autoincrement())
+  itemType         ItemType @default(SALE) // 1. เพิ่มประเภท Item
+  assetCode        String?  @unique      // 2. เพิ่มรหัสทรัพย์สิน
   serialNumber     String?  @unique
   macAddress       String?  @unique
   status           ItemStatus @default(IN_STOCK)
@@ -89,11 +107,17 @@ model InventoryItem {
   productModel     ProductModel @relation(fields: [productModelId], references: [id])
   addedById        Int
   addedBy          User     @relation("AddedBy", fields: [addedById], references: [id])
+  
+  // 3. เพิ่มความสัมพันธ์กับผู้รับผิดชอบ
+  assignedToId     Int?
+  assignedTo       User?    @relation("AssignedAssets", fields: [assignedToId], references: [id])
+
   saleId           Int?
   sale             Sale?    @relation(fields: [saleId], references: [id])
   borrowingRecords BorrowingOnItems[]
 
   @@index([status])
+  @@index([itemType])
 }
 
 model Borrowing {

@@ -14,15 +14,17 @@ const saleRoute = require('./routes/saleRoute');
 const dashboardRoute = require('./routes/dashboardRoute');
 const userRoute = require('./routes/userRoute');
 const borrowingRoute = require('./routes/borrowingRoute');
+const assetRoute = require('./routes/assetRoute');
 
 const app = express();
 
 // --- Middleware (ต้องอยู่ตรงนี้ ก่อน Routes) ---
-app.use(express.json()); // <--- **บรรทัดนี้สำคัญที่สุด**
+app.use(express.json());
 app.use(cors());
 app.use(morgan('dev'));
 
 // --- API Routes (ต้องอยู่หลัง Middleware) ---
+app.use('/api/assets', assetRoute); 
 app.use('/api/categories', categoryRoute);
 app.use('/api/customers', customerRoute);
 app.use('/api/auth', authRoute);
