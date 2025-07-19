@@ -7,11 +7,14 @@ const { roleCheck } = require('../middlewares/roleCheckMiddleware');
 
 const userController = require('../controllers/userController');
 
-// --- Routes ที่ต้องการแค่การล็อกอิน (authCheck) ---
+// --- START: ส่วนที่แก้ไข ---
+// Routes สำหรับผู้ใช้ที่ Login อยู่ (ต้องอยู่ก่อน /:id)
 router.patch('/me/profile', authCheck, userController.updateMyProfile);
 router.patch('/me/password', authCheck, userController.changeMyPassword);
+router.get('/me/assets', authCheck, userController.getMyAssets); 
+// --- END ---
 
-// --- Routes ที่ต้องการสิทธิ์ SUPER_ADMIN ---
+// Routes ที่ต้องการสิทธิ์ SUPER_ADMIN
 const superAdminOnly = [authCheck, roleCheck(['SUPER_ADMIN'])];
 
 router.get('/', superAdminOnly, userController.getAllUsers);

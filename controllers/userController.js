@@ -6,8 +6,6 @@ const bcrypt = require('bcryptjs');
 
 const userController = {};
 
-// ... (โค้ดส่วนบน getAllUsers, getUserById, createUser, updateUser, etc. เหมือนเดิม) ...
-
 userController.getAllUsers = async (req, res) => {
     try {
         if (req.query.all === 'true') {
@@ -214,17 +212,14 @@ userController.changeMyPassword = async (req, res) => {
 };
 
 // --- START: ส่วนที่แก้ไข ---
+// สำหรับ Admin ดูประวัติของ User คนอื่น
 userController.getUserAssets = async (req, res) => {
     const { id: userId } = req.params;
     try {
         const history = await prisma.assetHistory.findMany({
             where: { assignedToId: parseInt(userId) },
             include: {
-                inventoryItem: {
-                    include: {
-                        productModel: true
-                    }
-                }
+                inventoryItem: { include: { productModel: true } }
             },
             orderBy: { assignedAt: 'desc' }
         });
@@ -235,19 +230,44 @@ userController.getUserAssets = async (req, res) => {
     }
 };
 
+// สำหรับ User ที่ Login อยู่ ดูประวัติของตัวเอง
+userController.getMyAssets = async (req, res) => {
+    const { id: userId } = req.user; // <-- ใช้ req.user.id
+    try {
+        const assets = await prisma.inventoryItem.findMany({
+            where: {
+                itemType: ItemType.ASSET,
+                assignmentRecords: {
+                    some: {
+                        assignment: { assigneeId: parseInt(userId) },
+                        returnedAt: null
+                    }
+                }
+            },
+            include: {
+                productModel: { include: { brand: true, category: true } }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+        res.status(200).json(assets);
+    } catch (error) {
+        console.error("Could not fetch user's assets:", error);
+        res.status(500).json({ error: "Could not fetch user's assets." });
+    }
+};
+
 userController.getUserAssetSummary = async (req, res) => {
-    const { id } = req.params;
-    const userId = parseInt(id);
+    const { id: userId } = req.params;
     try {
         const currentlyAssigned = await prisma.assetHistory.count({
             where: { 
-                assignedToId: userId,
+                assignedToId: parseInt(userId),
                 returnedAt: null
             }
         });
 
         const totalEverAssigned = await prisma.assetHistory.count({
-            where: { assignedToId: userId }
+            where: { assignedToId: parseInt(userId) }
         });
 
         res.status(200).json({
